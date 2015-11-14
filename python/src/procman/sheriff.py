@@ -12,15 +12,15 @@ import signal
 import gobject
 
 import lcm
-from bot_procman.command2_t import command2_t
-from bot_procman.info2_t import info2_t
-from bot_procman.orders2_t import orders2_t
-from bot_procman.sheriff_cmd2_t import sheriff_cmd2_t
-from bot_procman.deputy_cmd2_t import deputy_cmd2_t
-from bot_procman.discovery_t import discovery_t
-import bot_procman.sheriff_config as sheriff_config
-from bot_procman.sheriff_script import SheriffScript
-from bot_procman.signal_slot import Signal
+from procman.command2_t import command2_t
+from procman.info2_t import info2_t
+from procman.orders2_t import orders2_t
+from procman.sheriff_cmd2_t import sheriff_cmd2_t
+from procman.deputy_cmd2_t import deputy_cmd2_t
+from procman.discovery_t import discovery_t
+import procman.sheriff_config as sheriff_config
+from procman.sheriff_script import SheriffScript
+from procman.signal_slot import Signal
 
 def _dbg(text):
     return
@@ -222,14 +222,14 @@ class SheriffDeputyCommand(object):
         sheriff.
 
         Returns one of:
-        - bot_procman.sheriff.TRYING_TO_START
-        - bot_procman.sheriff.RUNNING
-        - bot_procman.sheriff.TRYING_TO_STOP
-        - bot_procman.sheriff.REMOVING
-        - bot_procman.sheriff.STOPPED_OK
-        - bot_procman.sheriff.STOPPED_ERROR
-        - bot_procman.sheriff.UNKNOWN
-        - bot_procman.sheriff.RESTARTING
+        - procman.sheriff.TRYING_TO_START
+        - procman.sheriff.RUNNING
+        - procman.sheriff.TRYING_TO_STOP
+        - procman.sheriff.REMOVING
+        - procman.sheriff.STOPPED_OK
+        - procman.sheriff.STOPPED_ERROR
+        - procman.sheriff.UNKNOWN
+        - procman.sheriff.RESTARTING
         """
         if not self.updated_from_info:
             return UNKNOWN
@@ -320,7 +320,7 @@ class SheriffDeputy(object):
 
     def _update_from_deputy_info2(self, dep_info_msg):
         """
-        @dep_info_msg: an instance of bot_procman.info2_t
+        @dep_info_msg: an instance of procman.info2_t
         """
         status_changes = []
         for cmd_msg in dep_info_msg.cmds:
@@ -487,11 +487,11 @@ class Sheriff(object):
 
     example usage:
     \code
-    import bot_procman
+    import procman
     import gobject
 
     lc = lcm.LCM()
-    sheriff = bot_procman.Sheriff(lc)
+    sheriff = procman.Sheriff(lc)
 
     # add commands or load a config file
 
@@ -549,14 +549,14 @@ class Sheriff(object):
 
         # signals
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when
         # information from a deputy is received and processed.
         # `deputy_info_received(deputy_object)`
         #
         # \param deputy_object is a SheriffDeputy corresponding to the updated deputy.
         self.deputy_info_received = Signal()
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when a new
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when a new
         # command is added to the sheriff.
         #
         # \param deputy_object is a SheriffDeputy for the deputy that owns the
@@ -564,7 +564,7 @@ class Sheriff(object):
         # \param cmd_object is a SheriffDeputyCommand for the new command.
         self.command_added = Signal()
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when a command
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when a command
         # is removed from the sheriff.
         # `command_removed(deputy_object, cmd_object)`
         #
@@ -572,7 +572,7 @@ class Sheriff(object):
         # \param cmd_object is a SheriffDeputyCommand for the removed command.
         self.command_removed = Signal()
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when the
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when the
         # status of a command changes (e.g., running, stopped, etc.).
         # `command_status_changed(cmd_object, old_status, new_status)`
         #
@@ -581,43 +581,43 @@ class Sheriff(object):
         # \param new_status indicates the new command status.
         self.command_status_changed = Signal()
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when a command
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when a command
         # is moved into a different group.
         #
         # \param cmd_object the command whose group changes.
         self.command_group_changed = Signal()
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when a script
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when a script
         # is added.
         #
-        # \param script_object a [SheriffScript](\ref bot_procman.sheriff_script.SheriffScript) object.
+        # \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object.
         self.script_added = Signal()
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when a script
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when a script
         # is removed.
         #
-        # \param script_object a [SheriffScript](\ref bot_procman.sheriff_script.SheriffScript) object.
+        # \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object.
         self.script_removed = Signal()
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when a script
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when a script
         # begins executing.
         # `script_started(script_object)`
         #
-        # \param script_object a [SheriffScript](\ref bot_procman.sheriff_script.SheriffScript) object.
+        # \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object.
         self.script_started = Signal()
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when a single
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when a single
         # action in a script begins to run.  (e.g., start a command)
         # `script_action_executing(script_object, action)`
         #
-        # \param script_object a [SheriffScript](\ref bot_procman.sheriff_script.SheriffScript) object
-        # \param action one of: [StartStopRestartAction](\ref bot_procman.sheriff_script.StartStopRestartAction),
-        # [WaitMsAction](\ref bot_procman.sheriff_script.WaitMsAction),
-        # [WaitStatusAction](\ref bot_procman.sheriff_script.WaitStatusAction),
-        # [RunScriptAction](\ref bot_procman.sheriff_script.RunScriptAction)
+        # \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object
+        # \param action one of: [StartStopRestartAction](\ref procman.sheriff_script.StartStopRestartAction),
+        # [WaitMsAction](\ref procman.sheriff_script.WaitMsAction),
+        # [WaitStatusAction](\ref procman.sheriff_script.WaitStatusAction),
+        # [RunScriptAction](\ref procman.sheriff_script.RunScriptAction)
         self.script_action_executing = Signal()
 
-        ## [Signal](\ref bot_procman.signal_slot.Signal) emitted when a script
+        ## [Signal](\ref procman.signal_slot.Signal) emitted when a script
         # finishes execution.
         # `script_finished(script_object)`
         #

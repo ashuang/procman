@@ -88,20 +88,20 @@ LCM Channel | Message type | Description
 
 # Appendix - message definitions {#procman_lcm_message_defs}
 
-## bot_procman.info2_t {#procman_lcm_info2_t}
-\include bot_procman_info2_t.lcm
+## procman.info2_t {#procman_lcm_info2_t}
+\include procman_info2_t.lcm
 
-## bot_procman.deputy_cmd2_t {#procman_lcm_deputy_cmd2_t}
-\include bot_procman_deputy_cmd2_t.lcm
+## procman.deputy_cmd2_t {#procman_lcm_deputy_cmd2_t}
+\include procman_deputy_cmd2_t.lcm
 
-## bot_procman.command2_t {#procman_lcm_command2_t}
-\include bot_procman_command2_t.lcm
+## procman.command2_t {#procman_lcm_command2_t}
+\include procman_command2_t.lcm
 
-## bot_procman.printf_t {#procman_lcm_printf_t}
-\include bot_procman_printf_t.lcm
+## procman.printf_t {#procman_lcm_printf_t}
+\include procman_printf_t.lcm
 
-## bot_procman.discovery_t {#procman_lcm_discovery_t}
-\include bot_procman_discovery_t.lcm
+## procman.discovery_t {#procman_lcm_discovery_t}
+\include procman_discovery_t.lcm
 
-## bot_procman.orders2_t {#procman_lcm_orders2_t}
-\include bot_procman_orders2_t.lcm
+## procman.orders2_t {#procman_lcm_orders2_t}
+\include procman_orders2_t.lcm

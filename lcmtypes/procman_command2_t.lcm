@@ -1,4 +1,4 @@
-package bot_procman;
+package procman;
 
 struct command2_t {
     // Executable string

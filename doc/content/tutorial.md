@@ -4,8 +4,8 @@ Quick Start Tutorial {#procman_tutorial}
 This section provides a brief introduction to Procman and controlling processes
 with a deputy and a sheriff.
 
-There are two types of programs in Procman - the deputy (\p bot-procman-deputy)
-and the sheriff (\p bot-procman-sheriff).
+There are two types of programs in Procman - the deputy (\p procman-deputy)
+and the sheriff (\p procman-sheriff).
 
 - Deputies control processes, and there must be at least one deputy.
 - Sheriffs control deputies, and there can be at most one sheriff.
@@ -23,18 +23,18 @@ and manage commands.
 First, open up your favorite terminal program and run the deputy command:
 
 \code
-bot-procman-deputy
+procman-deputy
 \endcode
 
 Then, in another terminal, launch the sheriff GUI.
 
 \code
-bot-procman-sheriff
+procman-sheriff
 \endcode
 
 When you run the sheriff, you should see a GUI that looks something like this:
 
-\image html sheriff-gui-empty.png "bot-procman-sheriff with one deputy and no commands."
+\image html sheriff-gui-empty.png "procman-sheriff with one deputy and no commands."
 
 There are three panes in the sheriff GUI:
 - Top left: the command pane

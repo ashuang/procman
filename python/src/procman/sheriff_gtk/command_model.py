@@ -1,7 +1,7 @@
 import gobject
 import gtk
 
-import bot_procman.sheriff as sheriff
+import procman.sheriff as sheriff
 
 COL_CMDS_TV_OBJ, \
 COL_CMDS_TV_EXEC, \

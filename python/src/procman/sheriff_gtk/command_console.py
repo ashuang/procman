@@ -4,7 +4,7 @@ import gobject
 import gtk
 import pango
 
-from bot_procman.printf_t import printf_t
+from procman.printf_t import printf_t
 
 DEFAULT_MAX_KB_PER_SECOND = 500
 

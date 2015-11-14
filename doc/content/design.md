@@ -21,7 +21,7 @@ receives from a sheriff.
 _Sheriffs_ tell deputies what to do.  A single sheriff can command many
 deputies.  Any process can be a sheriff as long as it implements the
 sheriff/deputy communications protocol, but the most commonly used sheriff is
-the `bot-procman-sheriff` GUI tool provided with Procman.  The Procman Python API
+the `procman-sheriff` GUI tool provided with Procman.  The Procman Python API
 can also be used to implement a custom sheriff.
 
 Sheriffs and deputies [communicate via LCM](\ref procman_comms), a UDP
@@ -29,9 +29,9 @@ multicast-based communications protocol.  All communications are stateless,
 which enables sheriffs and deputies to work together more easily in the
 presence of network and communication dropouts.
 
-## bot-procman-sheriff {#procman_design_bot_procman_sheriff}
+## procman-sheriff {#procman_design_procman_sheriff}
 
-`bot-procman-sheriff` is the primary implementation of Procman sheriff, and can
+`procman-sheriff` is the primary implementation of Procman sheriff, and can
 be used to communicate with and command deputies.  The sheriff forms a global
 view of all deputies and their commands.  The sheriff sends commands to the
 deputies, and specifies which commands a deputy should be managing, and the
@@ -44,11 +44,11 @@ running simple scripts in general.
 
 The sheriff can also be run from the command line without a GUI.
 
-\image html procman-sheriff-screenshot.png "bot-procman-sheriff screenshot"
+\image html procman-sheriff-screenshot.png "procman-sheriff screenshot"
 
-### Observer mode {#procman_design_bot_procman_sheriff_observer_mode}
+### Observer mode {#procman_design_procman_sheriff_observer_mode}
 
-`bot-procman-sheriff` can be switched to observer mode, where it stops
+`procman-sheriff` can be switched to observer mode, where it stops
 transmitting commands, and simply displays the state of the deputies.  Observer
 mode is useful in situations where you want to simply observe the state of a
 running system.  Examples of this include situations where the active sheriff

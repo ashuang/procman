@@ -1,4 +1,4 @@
-package bot_procman;
+package procman;
 
 /*
    message sent by the procman sheriff to provide instructions for a procman

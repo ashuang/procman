@@ -1,4 +1,4 @@
-package bot_procman;
+package procman;
 
 /*
    message sent by a procman deputy, primarily intended for the procman

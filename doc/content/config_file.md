@@ -45,7 +45,7 @@ group "shells" {
 You can load this configuration file into procman by passing it as a command
 line argument:
 \code
-$ bot-procman-sheriff simple_config.procman
+$ procman-sheriff simple_config.procman
 \endcode
 
 Additionally, the procman sheriff GUI provides a menu option to save and load
@@ -337,9 +337,9 @@ finish execution before continuing.
 Scripts can be generally be run in one of several ways:
 - load a configuration file into the procman sheriff GUI, and select the script
   from the "script" menu.
-- pass the configuration file and script name as command line arguments to `bot-procman-sheriff`.  For example:
+- pass the configuration file and script name as command line arguments to `procman-sheriff`.  For example:
 \code
-$ bot-procman-sheriff config_file.procman go
+$ procman-sheriff config_file.procman go
 \endcode
 
 ## Referencing nested groups {#procman_config_file_script_nested_groups}

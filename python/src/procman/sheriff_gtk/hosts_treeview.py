@@ -2,9 +2,9 @@ import time
 import gobject
 import gtk
 
-import bot_procman.sheriff as sheriff
-import bot_procman.sheriff_gtk.command_model as cm
-import bot_procman.sheriff_gtk.sheriff_dialogs as sd
+import procman.sheriff as sheriff
+import procman.sheriff_gtk.command_model as cm
+import procman.sheriff_gtk.sheriff_dialogs as sd
 
 class SheriffHostModel(gtk.ListStore):
     COL_OBJ, \

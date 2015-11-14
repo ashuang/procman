@@ -16,37 +16,37 @@ import pango
 
 from lcm import LCM
 
-import bot_procman.sheriff as sheriff
-import bot_procman.sheriff_config as sheriff_config
+import procman.sheriff as sheriff
+import procman.sheriff_config as sheriff_config
 
-import bot_procman.sheriff_gtk.command_model as cm
-import bot_procman.sheriff_gtk.command_treeview as ctv
-import bot_procman.sheriff_gtk.sheriff_dialogs as sd
-import bot_procman.sheriff_gtk.command_console as cc
-import bot_procman.sheriff_gtk.hosts_treeview as ht
+import procman.sheriff_gtk.command_model as cm
+import procman.sheriff_gtk.command_treeview as ctv
+import procman.sheriff_gtk.sheriff_dialogs as sd
+import procman.sheriff_gtk.command_console as cc
+import procman.sheriff_gtk.hosts_treeview as ht
 
 try:
-    from bot_procman.build_prefix import BUILD_PREFIX
+    from procman.build_prefix import BUILD_PREFIX
 except ImportError:
     BUILD_PREFIX = None
 
-def find_bot_procman_deputy_cmd():
+def find_procman_deputy_cmd():
     search_path = []
     if BUILD_PREFIX is not None:
         search_path.append("%s/bin" % BUILD_PREFIX)
     search_path.extend(os.getenv("PATH").split(":"))
     for dirname in search_path:
-        fname = "%s/bot-procman-deputy" % dirname
+        fname = "%s/procman-deputy" % dirname
         if os.path.exists(fname) and os.path.isfile(fname):
             return fname
     return None
 
-def find_bot_procman_glade():
+def find_procman_glade():
     search_path = []
     if BUILD_PREFIX:
-        search_path.append(os.path.join(BUILD_PREFIX, "share", "bot_procman"))
-    search_path.append("/usr/share/bot_procman")
-    search_path.append("/usr/local/share/bot_procman")
+        search_path.append(os.path.join(BUILD_PREFIX, "share", "procman"))
+    search_path.append("/usr/share/procman")
+    search_path.append("/usr/local/share/procman")
     for spath in search_path:
         fname = os.path.join(spath, "procman-sheriff.glade")
         if os.path.isfile(fname):
@@ -100,7 +100,7 @@ class SheriffGtk(object):
         # setup GUI
 
         self.builder = gtk.Builder()
-        self.builder.add_from_file(find_bot_procman_glade())
+        self.builder.add_from_file(find_procman_glade())
         self.builder.connect_signals(self)
 
         self.window = self.builder.get_object("main_window")
@@ -122,9 +122,9 @@ class SheriffGtk(object):
         self.spawn_deputy_mi = self.builder.get_object("spawn_deputy_mi")
         self.terminate_spawned_deputy_mi = self.builder.get_object("terminate_spawned_deputy_mi")
 
-        self.bot_procman_deputy_cmd = find_bot_procman_deputy_cmd()
-        if not self.bot_procman_deputy_cmd:
-            sys.stderr.write("Can't find bot-procman-deputy.  Spawn Deputy disabled")
+        self.procman_deputy_cmd = find_procman_deputy_cmd()
+        if not self.procman_deputy_cmd:
+            sys.stderr.write("Can't find procman-deputy.  Spawn Deputy disabled")
             self.spawn_deputy_mi.set_sensitive(False)
 
         # commands menu
@@ -512,7 +512,7 @@ class SheriffGtk(object):
     def on_spawn_deputy_mi_activate(self, *args):
         print("Spawn deputy!")
         self._terminate_spawned_deputy()
-        args = [ self.bot_procman_deputy_cmd, "-n", "localhost" ]
+        args = [ self.procman_deputy_cmd, "-n", "localhost" ]
         self.spawned_deputy = subprocess.Popen(args)
         # TODO disable
         self.spawn_deputy_mi.set_sensitive(False)
@@ -645,10 +645,10 @@ class SheriffHeadless(object):
 
         # start a local deputy?
         if self.spawn_deputy:
-            bot_procman_deputy_cmd = find_bot_procman_deputy_cmd()
-            args = [ bot_procman_deputy_cmd, "-n", "localhost" ]
-            if not bot_procman_deputy_cmd:
-                sys.stderr.write("Can't find bot-procman-deputy.")
+            procman_deputy_cmd = find_procman_deputy_cmd()
+            args = [ procman_deputy_cmd, "-n", "localhost" ]
+            if not procman_deputy_cmd:
+                sys.stderr.write("Can't find procman-deputy.")
                 sys.exit(1)
             self.spawned_deputy = subprocess.Popen(args)
         else:

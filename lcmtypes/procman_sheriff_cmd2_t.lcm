@@ -1,4 +1,4 @@
-package bot_procman;
+package procman;
 
 /* describes the state of a command managed by the procman sheriff/deputy
  */

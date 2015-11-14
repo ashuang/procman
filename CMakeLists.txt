@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.6.0)
 
-set(POD_NAME bot2-procman)
+set(POD_NAME procman)
 
 include(cmake/pods.cmake)
 

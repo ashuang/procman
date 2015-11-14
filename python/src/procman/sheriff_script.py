@@ -1,4 +1,4 @@
-from bot_procman.sheriff_config import ScriptNode, WaitStatusActionNode, WaitMsActionNode, StartStopRestartActionNode, RunScriptActionNode, escape_str
+from procman.sheriff_config import ScriptNode, WaitStatusActionNode, WaitMsActionNode, StartStopRestartActionNode, RunScriptActionNode, escape_str
 
 class StartStopRestartAction(object):
     """Script action to start, stop, or restart a command or group.
