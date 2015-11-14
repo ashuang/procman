@@ -16,7 +16,6 @@ import pango
 
 from lcm import LCM
 
-from bot_procman.orders_t import orders_t
 import bot_procman.sheriff as sheriff
 import bot_procman.sheriff_config as sheriff_config
 
@@ -95,7 +94,8 @@ class SheriffGtk(object):
         gobject.timeout_add (1000,
                 lambda *s: self._schedule_cmds_update () or True)
 
-        self.lc.subscribe ("PMD_ORDERS", self.on_procman_orders)
+#        self.lc.subscribe ("PMD_ORDERS", self.on_procman_orders)
+#        TODO subscribe to PMD_ORDERS2
 
         # setup GUI
 
@@ -559,19 +559,20 @@ class SheriffGtk(object):
             self.sheriff.send_orders ()
         return True
 
-    # LCM handlers
-    def on_procman_orders (self, channel, data):
-        msg = orders_t.decode (data)
-        if not self.sheriff.is_observer () and \
-                self.sheriff.get_name() != msg.sheriff_name:
-            # detected the presence of another sheriff that is not this one.
-            # self-demote to prevent command thrashing
-            self.set_observer (True)
-
-            self.statusbar.push (self.statusbar.get_context_id ("main"),
-                    "WARNING: multiple sheriffs detected!  Switching to observer mode");
-            gobject.timeout_add (6000,
-                    lambda *s: self.statusbar.pop (self.statusbar.get_context_id ("main")))
+#    TODO do this for orders2_t
+#    # LCM handlers
+#    def on_procman_orders (self, channel, data):
+#        msg = orders_t.decode (data)
+#        if not self.sheriff.is_observer () and \
+#                self.sheriff.get_name() != msg.sheriff_name:
+#            # detected the presence of another sheriff that is not this one.
+#            # self-demote to prevent command thrashing
+#            self.set_observer (True)
+#
+#            self.statusbar.push (self.statusbar.get_context_id ("main"),
+#                    "WARNING: multiple sheriffs detected!  Switching to observer mode");
+#            gobject.timeout_add (6000,
+#                    lambda *s: self.statusbar.pop (self.statusbar.get_context_id ("main")))
 
 class SheriffHeadless(object):
     def __init__(self, lc, config, spawn_deputy, script_name, script_done_action):
@@ -583,7 +584,7 @@ class SheriffHeadless(object):
         self.script = None
         self.mainloop = None
         self.lc = lc
-        self.lc.subscribe ("PMD_ORDERS", self._on_procman_orders)
+#        self.lc.subscribe ("PMD_ORDERS", self._on_procman_orders)
         if script_done_action is None:
             self.script_done_action = "exit"
         else:
@@ -625,15 +626,15 @@ class SheriffHeadless(object):
             self.sheriff.send_orders()
         return True
 
-    def _on_procman_orders(self, channel, data):
-        if self.sheriff.is_observer():
-            return
-
-        msg = orders_t.decode(data)
-        if self.sheriff.name != msg.sheriff_name:
-            # detected the presence of another sheriff that is not this one.
-            # self-demote to prevent command thrashing
-            self.sheriff.set_observer(True)
+#    def _on_procman_orders(self, channel, data):
+#        if self.sheriff.is_observer():
+#            return
+#
+#        msg = orders_t.decode(data)
+#        if self.sheriff.name != msg.sheriff_name:
+#            # detected the presence of another sheriff that is not this one.
+#            # self-demote to prevent command thrashing
+#            self.sheriff.set_observer(True)
 
     def run(self):
         self.mainloop = glib.MainLoop()

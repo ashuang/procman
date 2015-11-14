@@ -12,9 +12,6 @@ import signal
 import gobject
 
 import lcm
-from bot_procman.info_t import info_t
-from bot_procman.orders_t import orders_t
-from bot_procman.sheriff_cmd_t import sheriff_cmd_t
 from bot_procman.command2_t import command2_t
 from bot_procman.info2_t import info2_t
 from bot_procman.orders2_t import orders2_t
@@ -300,10 +297,6 @@ class SheriffDeputy(object):
         # ever been received.  Represented in microseconds since the epoch.
         self.last_update_utime = 0
 
-        # Set to 1 if the deputy uses info_t, orders_t, etc.
-        # Set to 2 if the deputy uses info2_t, order2_t, etc.
-        self._orders_version = 2
-
         # Dictionary of commands owned by the deputy
         self._commands = {}
 
@@ -422,30 +415,6 @@ class SheriffDeputy(object):
             new_status = cmd.status()
         return ((cmd, old_status, new_status),)
 
-    def _make_orders_message(self, sheriff_name):
-        orders = orders_t()
-        orders.utime = _now_utime()
-        orders.host = self.name
-        orders.ncmds = len(self._commands)
-        orders.sheriff_name = sheriff_name
-        for cmd in self._commands.values():
-            if cmd.scheduled_for_removal:
-                orders.ncmds -= 1
-                continue
-            cmd_msg = sheriff_cmd_t()
-            cmd_msg.name = cmd.exec_str
-            cmd_msg.nickname = cmd.command_id
-            cmd_msg.sheriff_id = cmd.sheriff_id
-            cmd_msg.desired_runid = cmd.desired_runid
-            cmd_msg.force_quit = cmd.force_quit
-            cmd_msg.group = cmd.group
-            cmd_msg.auto_respawn = cmd.auto_respawn
-            orders.cmds.append(cmd_msg)
-        orders.nvars = 0
-        orders.varnames = []
-        orders.varvals = []
-        return orders
-
     def _make_orders2_message(self, sheriff_name):
         msg = orders2_t()
         msg.utime = _now_utime()
@@ -557,9 +526,7 @@ class Sheriff(object):
         self._lcm = lcm_obj
         if self._lcm is None:
             self._lcm = lcm.LCM()
-        self._lcm.subscribe("PMD_INFO", self._on_pmd_info)
         self._lcm.subscribe("PMD_INFO2", self._on_pmd_info2)
-        self._lcm.subscribe("PMD_ORDERS", self._on_pmd_orders)
         self._lcm.subscribe("PMD_ORDERS2", self._on_pmd_orders2)
         self._deputies = {}
         self._is_observer = False
@@ -680,7 +647,7 @@ class Sheriff(object):
                 return deputy
         raise KeyError()
 
-    def _handle_info2_t(self, info_msg, version):
+    def _handle_info2_t(self, info_msg):
         now = _now_utime()
         if(now - info_msg.utime) * 1e-6 > 30 and not self.is_observer:
             # ignore old messages
@@ -727,8 +694,6 @@ class Sheriff(object):
                             % cmd.command_id)
                     break
 
-        deputy._orders_version = version
-
         status_changes = deputy._update_from_deputy_info2(info_msg)
 
         self.deputy_info_received(deputy)
@@ -740,50 +705,7 @@ class Sheriff(object):
         except ValueError:
             print("invalid info2_t message")
             return
-        self._handle_info2_t(info_msg, 2)
-
-    def _on_pmd_info(self, _, data):
-        try:
-            dep_info = info_t.decode(data)
-        except ValueError:
-            print("invalid info_t message")
-            return
-
-        new_info_msg = info2_t()
-        new_info_msg.utime = dep_info.utime
-        new_info_msg.host = dep_info.host
-        new_info_msg.cpu_load = dep_info.cpu_load
-        new_info_msg.phys_mem_total_bytes = dep_info.phys_mem_total_bytes
-        new_info_msg.phys_mem_free_bytes = dep_info.phys_mem_free_bytes
-        new_info_msg.swap_total_bytes = dep_info.swap_total_bytes
-        new_info_msg.swap_free_bytes = dep_info.swap_free_bytes
-        new_info_msg.ncmds = dep_info.ncmds
-        new_info_msg.num_options = 0
-        new_info_msg.option_names = []
-        new_info_msg.option_values = []
-        new_info_msg.cmds = []
-        for cmd_index, cmd_info in enumerate(dep_info.cmds):
-            cmd_msg = dep_info.cmds[cmd_index]
-            new_cmd_msg = deputy_cmd2_t()
-            new_cmd_msg.cmd = command2_t()
-            new_cmd_msg.cmd.exec_str = cmd_msg.name
-            new_cmd_msg.cmd.command_name = cmd_msg.nickname
-            new_cmd_msg.cmd.group = cmd_msg.group
-            new_cmd_msg.cmd.auto_respawn = cmd_msg.auto_respawn
-            new_cmd_msg.cmd.stop_signal = DEFAULT_STOP_SIGNAL
-            new_cmd_msg.cmd.stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED
-            new_cmd_msg.cmd.num_options = 0
-            new_cmd_msg.cmd.option_names = []
-            new_cmd_msg.cmd.option_values = []
-            new_cmd_msg.pid = cmd_msg.pid
-            new_cmd_msg.actual_runid = cmd_msg.actual_runid
-            new_cmd_msg.exit_code = cmd_msg.exit_code
-            new_cmd_msg.cpu_usage = cmd_msg.cpu_usage
-            new_cmd_msg.mem_vsize_bytes = cmd_msg.mem_vsize_bytes
-            new_cmd_msg.mem_rss_bytes = cmd_msg.mem_rss_bytes
-            new_cmd_msg.sheriff_id = cmd_msg.sheriff_id
-            new_info_msg.cmds.append(new_cmd_msg)
-        self._handle_info2_t(new_info_msg, 1)
+        self._handle_info2_t(info_msg)
 
     def _handle_orders2_t(self, orders_msg):
         if not self._is_observer:
@@ -796,36 +718,6 @@ class Sheriff(object):
     def _on_pmd_orders2(self, _, data):
         orders_msg = orders2_t.decode(data)
         self._handle_orders2_t(orders_msg)
-
-    def _on_pmd_orders(self, _, data):
-        dep_orders = orders_t.decode(data)
-
-        new_orders = orders2_t()
-        new_orders.utime = dep_orders.utime
-        new_orders.host = dep_orders.host
-        new_orders.sheriff_name = dep_orders.sheriff_name
-        new_orders.num_options = 0
-        new_orders.option_names = []
-        new_orders.option_values = []
-        new_orders.ncmds = dep_orders.ncmds
-        for cmd_index, cmd_order in enumerate(dep_orders.cmds):
-            cmd_msg = dep_orders.cmds[cmd_index]
-            new_cmd_msg = sheriff_cmd2_t()
-            new_cmd_msg.cmd = command2_t()
-            new_cmd_msg.cmd.exec_str = cmd_msg.name
-            new_cmd_msg.cmd.command_name = cmd_msg.nickname
-            new_cmd_msg.cmd.group = cmd_msg.group
-            new_cmd_msg.cmd.auto_respawn = cmd_msg.auto_respawn
-            new_cmd_msg.cmd.stop_signal = DEFAULT_STOP_SIGNAL
-            new_cmd_msg.cmd.stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED
-            new_cmd_msg.cmd.num_options = 0
-            new_cmd_msg.cmd.option_names = []
-            new_cmd_msg.cmd.option_values = []
-            new_cmd_msg.desired_runid = cmd_msg.desired_runid
-            new_cmd_msg.force_quit = cmd_msg.force_quit
-            new_cmd_msg.sheriff_id = cmd_msg.sheriff_id
-            new_orders.cmds.append(new_cmd_msg)
-        self._handle_orders2_t(new_orders)
 
     def __get_free_sheriff_id(self):
         id_to_try = random.randint(0, (1 << 31) - 1)
@@ -868,14 +760,8 @@ class Sheriff(object):
         for deputy in self._deputies.values():
             # only send orders to a deputy if we've heard from it.
             if deputy.last_update_utime > 0:
-
-                version = deputy._orders_version
-                if version == 1:
-                    msg = deputy._make_orders_message(self._name)
-                    self._lcm.publish("PMD_ORDERS", msg.encode())
-                else:
-                    msg = deputy._make_orders2_message(self._name)
-                    self._lcm.publish("PMD_ORDERS2", msg.encode())
+                msg = deputy._make_orders2_message(self._name)
+                self._lcm.publish("PMD_ORDERS2", msg.encode())
 
     def add_command(self, spec):
         """Add a new command.
