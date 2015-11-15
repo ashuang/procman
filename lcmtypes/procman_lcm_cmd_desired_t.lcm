@@ -4,10 +4,10 @@ package procman_lcm;
  */
 // ============ set by the sheriff ==========
 
-struct sheriff_cmd2_t {
+struct cmd_desired_t {
 
     // describes the command
-    command2_t cmd;
+    cmd_t cmd;
 
     // to start a command running, the sheriff should change desired_runid and
     // unset force_quit

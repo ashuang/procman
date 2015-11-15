@@ -6,7 +6,7 @@ package procman_lcm;
    host managed by the deputy.
 */
 
-struct info2_t {
+struct deputy_info_t {
     int64_t utime;
     string host;
 
@@ -19,7 +19,7 @@ struct info2_t {
     int64_t swap_free_bytes;
 
     int32_t ncmds;
-    deputy_cmd2_t cmds[ncmds];
+    cmd_status_t cmds[ncmds];
 
     int32_t num_options;
     string option_names[num_options];

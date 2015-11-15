@@ -5,13 +5,13 @@ project(procman)
 # build LCM types.
 include(cmake/lcmtypes.cmake)
 lcmtypes_build(TYPES
-               lcmtypes/procman_lcm_command2_t.lcm
-               lcmtypes/procman_lcm_deputy_cmd2_t.lcm
+               lcmtypes/procman_lcm_cmd_t.lcm
+               lcmtypes/procman_lcm_cmd_status_t.lcm
                lcmtypes/procman_lcm_discovery_t.lcm
-               lcmtypes/procman_lcm_info2_t.lcm
-               lcmtypes/procman_lcm_orders2_t.lcm
-               lcmtypes/procman_lcm_printf_t.lcm
-               lcmtypes/procman_lcm_sheriff_cmd2_t.lcm)
+               lcmtypes/procman_lcm_deputy_info_t.lcm
+               lcmtypes/procman_lcm_orders_t.lcm
+               lcmtypes/procman_lcm_output_t.lcm
+               lcmtypes/procman_lcm_cmd_desired_t.lcm)
 
 add_subdirectory(src/deputy)
 add_subdirectory(python)

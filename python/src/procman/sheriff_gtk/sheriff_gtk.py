@@ -94,8 +94,8 @@ class SheriffGtk(object):
         gobject.timeout_add (1000,
                 lambda *s: self._schedule_cmds_update () or True)
 
-#        self.lc.subscribe ("PMD_ORDERS", self.on_procman_orders)
-#        TODO subscribe to PMD_ORDERS2
+#        self.lc.subscribe ("PM_ORDERS", self.on_procman_orders)
+#        TODO subscribe to PM_ORDERS
 
         # setup GUI
 
@@ -559,7 +559,7 @@ class SheriffGtk(object):
             self.sheriff.send_orders ()
         return True
 
-#    TODO do this for orders2_t
+#    TODO do this for orders_t
 #    # LCM handlers
 #    def on_procman_orders (self, channel, data):
 #        msg = orders_t.decode (data)
@@ -584,7 +584,7 @@ class SheriffHeadless(object):
         self.script = None
         self.mainloop = None
         self.lc = lc
-#        self.lc.subscribe ("PMD_ORDERS", self._on_procman_orders)
+#        self.lc.subscribe ("PM_ORDERS", self._on_procman_orders)
         if script_done_action is None:
             self.script_done_action = "exit"
         else:

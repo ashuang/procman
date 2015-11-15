@@ -4,7 +4,7 @@ import gobject
 import gtk
 import pango
 
-from procman_lcm.printf_t import printf_t
+from procman_lcm.output_t import output_t
 
 DEFAULT_MAX_KB_PER_SECOND = 500
 
@@ -75,11 +75,11 @@ class SheriffCommandConsole(gtk.ScrolledWindow):
 
         self.sheriff.command_added.connect(self._on_sheriff_command_added)
         self.sheriff.command_removed.connect(self._on_sheriff_command_removed)
-        self.sheriff.command_status_changed.connect(self._on_sheriff_command_status_changed)
+        self.sheriff.command_status_changed.connect(self._on_command_desired_changed)
 
         self._cmd_extradata = {}
 
-        lc.subscribe ("PMD_PRINTF", self.on_procman_printf)
+        lc.subscribe ("PM_OUTPUT", self.on_procman_printf)
 
         self.text_tags = { "normal" : gtk.TextTag("normal") }
         for tt in self.text_tags.values():
@@ -186,7 +186,7 @@ class SheriffCommandConsole(gtk.ScrolledWindow):
         self._add_text_to_buffer (self.sheriff_tb, now_str() +
                 "[%s] removed [%s] [%s]\n" % (deputy.name, command.command_id, command.exec_str))
 
-    def _on_sheriff_command_status_changed (self, cmd,
+    def _on_command_desired_changed (self, cmd,
             old_status, new_status):
         self._add_text_to_buffer (self.sheriff_tb, now_str() +
                 "[%s] new status: %s\n" % (cmd.command_id, new_status))
@@ -240,7 +240,7 @@ class SheriffCommandConsole(gtk.ScrolledWindow):
         adj.set_data ("scrolled-to-end", adj.value == adj.upper-adj.page_size)
 
     def on_procman_printf (self, channel, data):
-        msg = printf_t.decode (data)
+        msg = output_t.decode (data)
         if msg.sheriff_id:
             try:
                 cmd = self.sheriff.get_command_by_sheriff_id(msg.sheriff_id)

@@ -56,9 +56,9 @@ The deputy transmits the following messages:
 
 LCM Channel | Message type | Description
 ------------|--------------|-------------
-`PMD_INFO2` | [info2_t](\ref procman_lcm_info2_t) | Summarizes the state of all commands managed by a deputy.  Transmitted at 1 Hz or when a command status changes.
-`PMD_PRINTF` | [printf_t](\ref procman_lcm_printf_t) | Published when a hosted command generates output to stdout or stderr, and contains the output produced by the command.
-`PMD_DISCOVER` | [discovery_t](\ref procman_lcm_discovery_t) | Published to check for conflicting deputies with the same ID.  Published when a deputy first starts up.
+`PM_INFO` | [deputy_info_t](\ref procman_lcm_deputy_info_t) | Summarizes the state of all commands managed by a deputy.  Transmitted at 1 Hz or when a command status changes.
+`PM_OUTPUT` | [output_t](\ref procman_lcm_output_t) | Published when a hosted command generates output to stdout or stderr, and contains the output produced by the command.
+`PM_DISCOVER` | [discovery_t](\ref procman_lcm_discovery_t) | Published to check for conflicting deputies with the same ID.  Published when a deputy first starts up.
 
 ## Messages received by deputy {#procman_comms_deputy_received}
 
@@ -66,8 +66,8 @@ The deputy subscribes to the following messages:
 
 LCM Channel | Message type | Description
 ------------|--------------|-------------
-`PMD_DISOCVER` | [discovery_t](\ref procman_lcm_discovery_t) | When received, the deputy replies by transmitting its state on `PMD_INFO2`.
-`PMD_ORDERS2` | [orders2_t](\ref procman_lcm_orders2_t) | When received, the deputy checks if the orders are targeted for it.  If not, or if the timestamp on the orders differs significantly from the deputy's system clock, then it ignores the message.  Otherwise, the deputy modifies its state to achieve the state indicated by the orders.  This may involve creating, starting, and stopping commands.
+`PM_DISOCVER` | [discovery_t](\ref procman_lcm_discovery_t) | When received, the deputy replies by transmitting its state on `PM_INFO`.
+`PM_ORDERS` | [orders_t](\ref procman_lcm_orders_t) | When received, the deputy checks if the orders are targeted for it.  If not, or if the timestamp on the orders differs significantly from the deputy's system clock, then it ignores the message.  Otherwise, the deputy modifies its state to achieve the state indicated by the orders.  This may involve creating, starting, and stopping commands.
 
 # Sheriff {#procman_comms_sheriff}
 
@@ -75,33 +75,33 @@ LCM Channel | Message type | Description
 
 LCM Channel | Message type | Description
 ------------|--------------|------------
-`PMD_ORDERS2` | [orders2_t](\ref procman_lcm_orders2_t) | Commands a deputy.  Each orders message contains the desired state of all commands managed by a single deputy.  To command multiple deputies, the sheriff sends one orders message to each deputy.  Transmitted at 1 Hz or when a command's desired status changes.
-`PMD_DISCOVER` | [discovery_t](\ref procman_lcm_discovery_t) | Published by a sheriff to discover deputies when the sheriff first starts up.
+`PM_ORDERS` | [orders_t](\ref procman_lcm_orders_t) | Commands a deputy.  Each orders message contains the desired state of all commands managed by a single deputy.  To command multiple deputies, the sheriff sends one orders message to each deputy.  Transmitted at 1 Hz or when a command's desired status changes.
+`PM_DISCOVER` | [discovery_t](\ref procman_lcm_discovery_t) | Published by a sheriff to discover deputies when the sheriff first starts up.
 
 ## Messages received by sheriff {#procman_comms_sheriff_received}
 
 LCM Channel | Message type | Description
 ------------|--------------|------------
-`PMD_INFO2` | [info2_t](\ref procman_lcm_info2_t) | When received, the sheriff updates its internal representation of a deputy's actual state.
-`PMD_PRINTF` | [printf_t](\ref procman_lcm_printf_t) | Contains the console output produced by a deputy-managed command.  When received, the sheriff may display a command's output to the user.  Subscribing to this channel is optional for a sheriff.
+`PM_INFO` | [deputy_info_t](\ref procman_lcm_deputy_info_t) | When received, the sheriff updates its internal representation of a deputy's actual state.
+`PM_OUTPUT` | [output_t](\ref procman_lcm_output_t) | Contains the console output produced by a deputy-managed command.  When received, the sheriff may display a command's output to the user.  Subscribing to this channel is optional for a sheriff.
 
 
 # Appendix - message definitions {#procman_lcm_message_defs}
 
-## procman.info2_t {#procman_lcm_info2_t}
-\include procman_info2_t.lcm
+## procman.deputy_info_t {#procman_lcm_deputy_info_t}
+\include procman_deputy_info_t.lcm
 
-## procman.deputy_cmd2_t {#procman_lcm_deputy_cmd2_t}
-\include procman_deputy_cmd2_t.lcm
+## procman.cmd_status_t {#procman_lcm_cmd_status_t}
+\include procman_cmd_status_t.lcm
 
-## procman.command2_t {#procman_lcm_command2_t}
-\include procman_command2_t.lcm
+## procman.cmd_t {#procman_lcm_cmd_t}
+\include procman_cmd_t.lcm
 
-## procman.printf_t {#procman_lcm_printf_t}
-\include procman_printf_t.lcm
+## procman.output_t {#procman_lcm_output_t}
+\include procman_output_t.lcm
 
 ## procman.discovery_t {#procman_lcm_discovery_t}
 \include procman_discovery_t.lcm
 
-## procman.orders2_t {#procman_lcm_orders2_t}
-\include procman_orders2_t.lcm
+## procman.orders_t {#procman_lcm_orders_t}
+\include procman_orders_t.lcm

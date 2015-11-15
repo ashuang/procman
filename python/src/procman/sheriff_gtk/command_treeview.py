@@ -136,20 +136,20 @@ class SheriffCommandTreeView(gtk.TreeView):
         for col in self.get_columns():
             col_id = col.get_data("col-id")
 
-            visible_key = "cmd_treeview:visible:%s" % col_id
-            width_key = "cmd_treeview:width:%s" % col_id
+            visible_key = "command_treeview:visible:%s" % col_id
+            width_key = "command_treeview:width:%s" % col_id
             save_map[visible_key] = col.get_visible()
             save_map[width_key] = col.get_width()
 
-#        save_map["cmd_treeview_background_color"] = self.base_color.to_string()
-#        save_map["cmd_treeview_text_color"] = self.text_color.to_string()
+#        save_map["command_treeview_background_color"] = self.base_color.to_string()
+#        save_map["command_treeview_text_color"] = self.text_color.to_string()
 
     def load_settings(self, save_map):
         for col in self.get_columns():
             col_id = col.get_data("col-id")
 
-            visible_key = "cmd_treeview:visible:%s" % col_id
-            width_key = "cmd_treeview:width:%s" % col_id
+            visible_key = "command_treeview:visible:%s" % col_id
+            width_key = "command_treeview:width:%s" % col_id
             should_be_visible = save_map.get(visible_key, True)
             col.set_visible(should_be_visible)
             if int(col_id) == cm.COL_CMDS_TV_COMMAND_ID:
@@ -161,11 +161,11 @@ class SheriffCommandTreeView(gtk.TreeView):
                 col.set_fixed_width(width)
                 col.set_resizable(True)
 
-#        if "cmd_treeview_background_color" in save_map:
-#            self.set_background_color(gtk.gdk.Color(save_map["cmd_treeview_background_color"]))
+#        if "command_treeview_background_color" in save_map:
+#            self.set_background_color(gtk.gdk.Color(save_map["command_treeview_background_color"]))
 #
-#        if "cmd_treeview_text_color" in save_map:
-#            self.set_text_color(gtk.gdk.Color(save_map["cmd_treeview_text_color"]))
+#        if "command_treeview_text_color" in save_map:
+#            self.set_text_color(gtk.gdk.Color(save_map["command_treeview_text_color"]))
 
     def _start_selected_commands (self, *args):
         for cmd in self.get_selected_commands ():
@@ -382,7 +382,7 @@ class SheriffCommandTreeView(gtk.TreeView):
 
             for cmd in cmds:
                 if newdeputy != old_deputies[cmd_ind] and newdeputy != unchanged_val:
-                    cmd = self.sheriff.move_command_to_deputy(cmd, newdeputy)
+                    cmd = self.sheriff.move_cmd_to_deputy(cmd, newdeputy)
 
                 if new_exec_str != cmd.exec_str and new_exec_str != unchanged_val:
                     self.sheriff.set_command_exec(cmd, new_exec_str)

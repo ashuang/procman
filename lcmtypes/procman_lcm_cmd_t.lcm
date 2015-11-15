@@ -1,10 +1,10 @@
 package procman_lcm;
 
-struct command2_t {
+struct cmd_t {
     // Executable string
     string exec_str;
 
-    string command_name;
+    string command_id;
 
     string group;
 

@@ -3,10 +3,10 @@ package procman_lcm;
 /* describes the state of a command managed by the procman sheriff/deputy
  */
 
-struct deputy_cmd2_t {
+struct cmd_status_t {
 
     // The command to execute.
-    command2_t cmd;
+    cmd_t cmd;
 
     // If the command is running, then this is the pid if not, then this is
     // zero.
