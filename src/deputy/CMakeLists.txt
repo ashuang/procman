@@ -7,11 +7,15 @@ add_executable(procman-deputy
     procman_deputy.c
     signal_pipe.c)
 
-pods_use_pkg_config_packages(procman-deputy
-    glib-2.0
-    gthread-2.0
-    lcm
-    lcmtypes_procman)
-target_link_libraries(procman-deputy util)
+find_package(PkgConfig REQUIRED)
 
-pods_install_executables(procman-deputy)
+pkg_check_modules(DEPS REQUIRED glib-2.0 gthread-2.0 lcm)
+
+include_directories(${DEPS_INCLUDE_DIRS})
+
+target_link_libraries(procman-deputy
+                      util
+                      procman_lcmtypes
+                      ${DEPS_LDFLAGS})
+
+install(TARGETS procman-deputy DESTINATION bin)

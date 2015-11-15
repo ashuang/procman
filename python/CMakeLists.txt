@@ -1,17 +1,28 @@
 find_package(PythonInterp REQUIRED)
 
-option(GEN_BUILD_PREFIX "Generate build_prefix.py" ON)
+execute_process(COMMAND
+    ${PYTHON_EXECUTABLE} -c "import sys; sys.stdout.write(sys.version[:3])"
+    OUTPUT_VARIABLE pyversion)
 
-if(GEN_BUILD_PREFIX)
-  file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/procman/build_prefix.py
-      "BUILD_PREFIX='${CMAKE_INSTALL_PREFIX}'\n")
-    #  set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/procman/build_prefix.py)
-endif(GEN_BUILD_PREFIX)
+set(py_install_dir lib/python${pyversion}/dist-packages)
 
-# install all python packages in the src/ directory
-pods_install_python_packages(${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(build_prefix_py ${CMAKE_CURRENT_BINARY_DIR}/src/procman/build_prefix.py)
+file(WRITE ${build_prefix_py}
+     "BUILD_PREFIX='${CMAKE_INSTALL_PREFIX}'\n")
+install(FILES ${build_prefix_py} DESTINATION ${py_install_dir}/procman)
 
-# executable scripts:  script-name  python-module
-pods_install_python_script(procman-sheriff procman.sheriff_gtk.sheriff_gtk)
+# install python package
+install(DIRECTORY src/procman
+       DESTINATION ${py_install_dir}
+       FILES_MATCHING PATTERN "*.py")
 
+# Install glade file
 install(FILES procman-sheriff.glade DESTINATION share/procman)
+
+# procman-sheriff executable script
+set(procman_sheriff ${CMAKE_CURRENT_BINARY_DIR}/procman-sheriff)
+file(WRITE ${procman_sheriff}
+           "#!/bin/sh\n"
+           "export PYTHONPATH=${CMAKE_INSTALL_PREFIX}/${py_install_dir}:\${PYTHONPATH}\n"
+           "exec ${PYTHON_EXECUTABLE} -m procman.sheriff_gtk.sheriff_gtk\n")
+install(PROGRAMS ${procman_sheriff} DESTINATION bin)
