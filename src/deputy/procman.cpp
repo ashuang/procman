@@ -28,8 +28,8 @@
 
 #include <libgen.h>
 
-#include "procman.h"
-#include "procinfo.h"
+#include "procman.hpp"
+#include "procinfo.hpp"
 
 static void dbgt (const char *fmt, ...)
 {
@@ -99,7 +99,7 @@ procman_t *procman_create (const procman_params_t *params)
     // TODO check and see if it's already there
     char *path = getenv ("PATH");
     int newpathlen = strlen (path) + strlen(params->bin_path) + 2;
-    char *newpath = calloc(1, newpathlen);
+    char *newpath = (char*)calloc(1, newpathlen);
     sprintf (newpath, "%s:%s", params->bin_path, path);
     printf ("setting PATH to %s\n", newpath);
     setenv ("PATH", newpath, 1);
@@ -353,7 +353,7 @@ strsplit_set_packed(const char *tosplit, const char *delimiters, int max_tokens)
     for(i=0; tmp[i]; i++) {
         if(strlen(tmp[i])) n++;
     }
-    char **result = calloc(n+1, sizeof(char*));
+    char **result = (char**) calloc(n+1, sizeof(char*));
     int c=0;
     for(i=0; tmp[i]; i++) {
         if(strlen(tmp[i])) {
@@ -433,7 +433,7 @@ subst_vars_parse_variable(subst_parse_context_t* ctx)
     int ok = varname_len && braces_ok;
     if(ok) {
         // first lookup the variable in our stored table
-        char* val = g_hash_table_lookup(ctx->variables, varname);
+        char* val = (char*) g_hash_table_lookup(ctx->variables, varname);
         // if that fails, then check for a similar environment variable
         if(!val)
             val = getenv(varname);
@@ -511,7 +511,7 @@ procman_cmd_split_str (procman_cmd_t *pcmd, GHashTable* variables)
     if(!parsed || err) {
         // unable to parse the command string as a Bourne shell command.
         // Do the simple thing and split it on spaces.
-        pcmd->envp = calloc(1, sizeof(char**));
+        pcmd->envp = (char***) calloc(1, sizeof(char***));
         pcmd->envc = 0;
         pcmd->argv = strsplit_set_packed(pcmd->cmd->str, " \t\n", 0);
         for(pcmd->argc=0; pcmd->argv[pcmd->argc]; pcmd->argc++);
@@ -526,8 +526,8 @@ procman_cmd_split_str (procman_cmd_t *pcmd, GHashTable* variables)
         envCount++;
     pcmd->envc=envCount;
     pcmd->argc=argc-envCount;
-    pcmd->envp = calloc(pcmd->envc+1,sizeof(char**));
-    pcmd->argv = calloc(pcmd->argc+1,sizeof(char*));
+    pcmd->envp = (char***) calloc(pcmd->envc+1,sizeof(char***));
+    pcmd->argv = (char**) calloc(pcmd->argc+1,sizeof(char**));
     for (int i=0;i<argc;i++) {
         if (i<envCount)
             pcmd->envp[i]=g_strsplit(argv[i],"=",2);
@@ -657,13 +657,13 @@ procman_remove_cmd (procman_t *pm, procman_cmd_t *cmd)
     return 0;
 }
 
-int32_t
+procman_cmd_status_t
 procman_get_cmd_status (procman_t *pm, procman_cmd_t *cmd)
 {
     if (cmd->pid > 0) return PROCMAN_CMD_RUNNING;
     if (cmd->pid == 0) return PROCMAN_CMD_STOPPED;
 
-    return 0;
+    return PROCMAN_CMD_INVALID;
 }
 
 procman_cmd_t *

@@ -14,7 +14,7 @@
 
 #include <glib.h>
 
-#include "procinfo.h"
+#include "procinfo.hpp"
 
 static void strsplit (char *buf, char **words, int maxwords)
 {

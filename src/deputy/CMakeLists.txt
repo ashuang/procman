@@ -1,11 +1,11 @@
-add_definitions(-std=gnu99)
+add_definitions(-std=c++11)
 
 add_executable(procman-deputy
-    lcm_util.c
-    procinfo.c
-    procman.c
-    procman_deputy.c
-    signal_pipe.c)
+    lcm_util.cpp
+    procinfo.cpp
+    procman.cpp
+    procman_deputy.cpp
+    signal_pipe.cpp)
 
 find_package(PkgConfig REQUIRED)
 

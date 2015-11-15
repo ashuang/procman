@@ -13,7 +13,8 @@ extern "C" {
 
 typedef enum {
     PROCMAN_CMD_STOPPED = 0,
-    PROCMAN_CMD_RUNNING
+    PROCMAN_CMD_RUNNING,
+    PROCMAN_CMD_INVALID
 } procman_cmd_status_t;
 
 typedef struct _procman procman_t;
@@ -138,7 +139,7 @@ int procman_close_dead_pipes (procman_t *pm, procman_cmd_t *cmd);
 
 /* returns 0  TODO
  */
-int32_t procman_get_cmd_status (procman_t *pm, procman_cmd_t *cmd);
+procman_cmd_status_t procman_get_cmd_status (procman_t *pm, procman_cmd_t *cmd);
 
 /* Changes the command that will be executed for a procman_cmd_t
  * no effect until the command is started again (if it's currently running)

@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <signal.h>
 
-#include "signal_pipe.h"
+#include "signal_pipe.hpp"
 
 #define dbg(args...) fprintf(stderr, args)
 #undef dbg
@@ -120,8 +120,9 @@ signal_pipe_attach_glib (signal_pipe_glib_handler_t func, gpointer user_data)
 
     g_sp.ioc = g_io_channel_unix_new (g_sp.fds[0]);
     g_io_channel_set_flags (g_sp.ioc,
-            g_io_channel_get_flags (g_sp.ioc) | G_IO_FLAG_NONBLOCK, NULL);
-    g_sp.ios = g_io_add_watch (g_sp.ioc, G_IO_IN | G_IO_PRI,
+            (GIOFlags)(g_io_channel_get_flags (g_sp.ioc) | G_IO_FLAG_NONBLOCK), NULL);
+    g_sp.ios = g_io_add_watch (g_sp.ioc,
+        (GIOCondition)(G_IO_IN | G_IO_PRI),
             (GIOFunc) signal_handler_glib, NULL);
 
     g_sp.userfunc = func;

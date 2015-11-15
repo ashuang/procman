@@ -2,7 +2,7 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#include "lcm_util.h"
+#include "lcm_util.hpp"
 
 //#define dbg(...) fprintf (stderr, __VA_ARGS__)
 #define dbg(...)

@@ -1,5 +1,5 @@
-#ifndef __lc_util_h__
-#define __lc_util_h__
+#ifndef __lc_util_hpp__
+#define __lc_util_hpp__
 
 #include <glib.h>
 

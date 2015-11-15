@@ -42,10 +42,10 @@
 #include <lcmtypes/procman_lcm_deputy_info_t.h>
 #include <lcmtypes/procman_lcm_orders_t.h>
 
-#include "procman.h"
-#include "procinfo.h"
-#include "signal_pipe.h"
-#include "lcm_util.h"
+#include "procman.hpp"
+#include "procinfo.hpp"
+#include "signal_pipe.hpp"
+#include "lcm_util.hpp"
 
 #define ESTIMATED_MAX_CLOCK_ERROR_RATE 1.001
 
@@ -157,18 +157,18 @@ static gboolean
 on_scheduled_respawn(procman_cmd_t *cmd);
 
 static void
-transmit_str (procman_deputy_t *pmd, int sheriff_id, char * str)
+transmit_str (procman_deputy_t *pmd, int sheriff_id, const char * str)
 {
     procman_lcm_output_t msg;
     msg.deputy_name = pmd->hostname;
     msg.sheriff_id = sheriff_id;
-    msg.text = str;
+    msg.text = (char*) str;
     msg.utime = timestamp_now ();
     procman_lcm_output_t_publish (pmd->lcm, "PM_OUTPUT", &msg);
 }
 
 static void
-printf_and_transmit (procman_deputy_t *pmd, int sheriff_id, char *fmt, ...) {
+printf_and_transmit (procman_deputy_t *pmd, int sheriff_id, const char *fmt, ...) {
     int len;
     char buf[256];
     va_list ap;
@@ -392,7 +392,7 @@ check_for_dead_children (procman_deputy_t *pmd)
         if (mi->remove_requested) {
             dbgt ("[%s] remove\n", cmd->cmd_name);
             // cleanup the private data structure used
-            pmd_cmd_moreinfo_t *mi = cmd->user;
+            pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
             free(mi->group);
             free(mi->id);
             free(mi);
@@ -420,7 +420,7 @@ on_quit_timeout(procman_deputy_t* pmd)
         if (cmd->pid) {
             procman_kill_cmd (pmd->pm, cmd, SIGKILL);
         }
-        pmd_cmd_moreinfo_t *mi = cmd->user;
+        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
         free(mi->group);
         free(mi->id);
         free(mi);
@@ -641,7 +641,7 @@ introspection_timeout (procman_deputy_t *s)
         if (cmd->pid) nrunning++;
     }
 
-    dbgt ("MARK - rss: %"PRId64" kB vsz: %"PRId64
+    dbgt ("MARK - rss: %" PRId64 " kB vsz: %" PRId64
             " kB procs: %d (%d alive)\n",
             pinfo.rss / 1024, pinfo.vsize / 1024,
             g_list_length ((GList*)procman_get_cmds (s->pm)),
@@ -692,7 +692,7 @@ find_local_cmd (procman_deputy_t *s, int32_t sheriff_id)
 static void
 _set_command_group (procman_cmd_t *p, const char *group)
 {
-    pmd_cmd_moreinfo_t *mi = p->user;
+    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
     free (mi->group);
     mi->group = strdup (group);
 }
@@ -700,14 +700,14 @@ _set_command_group (procman_cmd_t *p, const char *group)
 static void
 _set_command_stop_signal (procman_cmd_t *p, int stop_signal)
 {
-    pmd_cmd_moreinfo_t *mi = p->user;
+    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
     mi->stop_signal = stop_signal;
 }
 
 static void
 _set_command_stop_time_allowed (procman_cmd_t *p, float stop_time_allowed)
 {
-    pmd_cmd_moreinfo_t *mi = p->user;
+    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
     mi->stop_time_allowed = stop_time_allowed;
 }
 
@@ -715,7 +715,7 @@ _set_command_stop_time_allowed (procman_cmd_t *p, float stop_time_allowed)
 static void
 _set_command_id (procman_cmd_t *p, const char *id)
 {
-    pmd_cmd_moreinfo_t *mi = p->user;
+    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
     free (mi->id);
     mi->id = strdup (id);
 }
@@ -902,8 +902,8 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
 
     // cull orphaned commands
     for (iter=toremove; iter; iter=iter->next) {
-        procman_cmd_t *p = iter->data;
-        pmd_cmd_moreinfo_t *mi = p->user;
+        procman_cmd_t *p = (procman_cmd_t*) iter->data;
+        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
 
         if (p->pid) {
             dbgt ("[%s] scheduling removal\n", p->cmd_name);
@@ -931,7 +931,7 @@ static void
 procman_deputy_order2_received (const lcm_recv_buf_t *rbuf, const char *channel,
         const procman_lcm_orders_t *orders, void *user_data)
 {
-    procman_deputy_t *deputy = user_data;
+    procman_deputy_t *deputy = (procman_deputy_t*) user_data;
     _handle_orders2(deputy, orders);
 }
 
@@ -961,7 +961,7 @@ static void
 procman_deputy_info2_received(const lcm_recv_buf_t *rbuf, const char *channel,
         const procman_lcm_deputy_info_t *msg, void *user_data)
 {
-    procman_deputy_t *pmd = user_data;
+    procman_deputy_t *pmd = (procman_deputy_t*) user_data;
 
     int64_t now = timestamp_now();
     if(now < pmd->deputy_start_time + DISCOVERY_TIME_MS * 1000) {
@@ -1038,7 +1038,7 @@ static void usage()
 
 int main (int argc, char **argv)
 {
-    char *optstring = "hvfl:n:u:";
+    const char *optstring = "hvfl:n:u:";
     int c;
     struct option long_opts[] = {
         { "help", no_argument, 0, 'h' },
@@ -1053,8 +1053,6 @@ int main (int argc, char **argv)
     int verbose = 0;
     char *hostname_override = NULL;
     char *lcmurl = NULL;
-
-    g_thread_init(NULL);
 
     while ((c = getopt_long (argc, argv, optstring, long_opts, 0)) >= 0)
     {
