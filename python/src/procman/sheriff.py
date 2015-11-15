@@ -12,12 +12,12 @@ import signal
 import gobject
 
 import lcm
-from procman.command2_t import command2_t
-from procman.info2_t import info2_t
-from procman.orders2_t import orders2_t
-from procman.sheriff_cmd2_t import sheriff_cmd2_t
-from procman.deputy_cmd2_t import deputy_cmd2_t
-from procman.discovery_t import discovery_t
+from procman_lcm.command2_t import command2_t
+from procman_lcm.info2_t import info2_t
+from procman_lcm.orders2_t import orders2_t
+from procman_lcm.sheriff_cmd2_t import sheriff_cmd2_t
+from procman_lcm.deputy_cmd2_t import deputy_cmd2_t
+from procman_lcm.discovery_t import discovery_t
 import procman.sheriff_config as sheriff_config
 from procman.sheriff_script import SheriffScript
 from procman.signal_slot import Signal

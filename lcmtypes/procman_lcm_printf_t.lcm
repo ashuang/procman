@@ -1,4 +1,4 @@
-package procman;
+package procman_lcm;
 
 /* message sent by a procman deputy when a child process writes something to
  * its stdout/stderr fd.  this message contains the contents of that write

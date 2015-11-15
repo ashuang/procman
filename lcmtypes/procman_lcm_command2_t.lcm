@@ -1,4 +1,4 @@
-package procman;
+package procman_lcm;
 
 struct command2_t {
     // Executable string

@@ -1,4 +1,4 @@
-package procman;
+package procman_lcm;
 
 /*
    message sent by a procman deputy or sheriff to discover other deputies and
