@@ -82,6 +82,123 @@ static void strfreev(char** vec) {
   }
 }
 
+class VariableExpander {
+  public:
+    /**
+     * Do variable expansion on a command argument.  This searches the argument for
+     * text of the form $VARNAME and ${VARNAME}.  For each discovered variable, it
+     * then expands the variable.  Values defined in the hashtable vars are used
+     * first, followed by environment variable values.  If a variable expansion
+     * fails, then the corresponding text is left unchanged.
+     */
+    std::string ExpandVariables(const char* input,
+        const StringStringMap& vars) {
+      input_ = input;
+      input_len_ = strlen(input_);
+      pos_ = 0;
+      variables_ = &vars;
+
+      while(EatToken()) {
+        const char c = cur_tok_;
+        if('\\' == c) {
+          if(EatToken()) {
+            output_.put(c);
+          } else {
+            output_.put('\\');
+          }
+          continue;
+        }
+        // variable?
+        if('$' == c) {
+          ParseVariable();
+        } else {
+          output_.put(c);
+        }
+      }
+      return output_.str();
+    }
+
+  private:
+    bool HasToken() {
+      return pos_ < input_len_;
+    }
+
+    char PeekToken() {
+      return HasToken() ? input_[pos_] : 0;
+    }
+
+    bool EatToken() {
+      if(HasToken()) {
+        cur_tok_ = input_[pos_];
+        pos_++;
+        return true;
+      } else {
+        cur_tok_ = 0;
+        return false;
+      }
+    }
+
+    bool ParseVariable() {
+      int start = pos_;
+      if(!HasToken()) {
+        output_.put('$');
+        return false;
+      }
+      int has_braces = PeekToken() == '{';
+      if(has_braces) {
+        EatToken();
+      }
+      int varname_start = pos_;
+      int varname_len = 0;
+      while(HasToken() &&
+          IsValidVariableCharacter(PeekToken(), varname_len)) {
+        varname_len++;
+        EatToken();
+      }
+      char* varname = strndup(&input_[varname_start], varname_len);
+      bool braces_ok = true;
+      if(has_braces && ((!EatToken()) || cur_tok_ != '}')) {
+        braces_ok = false;
+      }
+      bool ok = varname_len && braces_ok;
+      if (ok) {
+        // first lookup the variable in our stored table
+        const char* val = nullptr;
+        auto iter = variables_->find(varname);
+        if (iter != variables_->end()) {
+          val = iter->second.c_str();
+        } else {
+          val = getenv(varname);
+        }
+        // if that fails, then check for a similar environment variable
+        if (val) {
+          output_ << val;
+        } else {
+          ok = false;
+        }
+      }
+      if (!ok) {
+        output_.write(&input_[start - 1], pos_ - start + 1);
+      }
+      free(varname);
+      return ok;
+    }
+
+    static bool IsValidVariableCharacter(char c, int pos) {
+      const char* valid_start = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+      const char* valid_follow = "1234567890";
+      return (strchr(valid_start, c) != NULL ||
+          ((0 == pos) && (strchr(valid_follow, c) != NULL)));
+    }
+
+    const char* input_;
+    int input_len_;
+    int pos_;
+    char cur_tok_;
+    std::stringstream output_;
+    const StringStringMap* variables_;
+};
+
 ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
 {
   ProcmanOptions result;
@@ -287,131 +404,6 @@ int Procman::CloseDeadPipes(ProcmanCommandPtr cmd) {
   return 0;
 }
 
-typedef struct {
-    const char* w;
-    int w_len;
-    int pos;
-    char cur_tok;
-    std::stringstream stream;
-    const StringStringMap* variables;
-} subst_parse_context_t;
-
-static int
-is_valid_variable_char(char c, int pos)
-{
-    const char* valid_start = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
-    const char* valid_follow = "1234567890";
-    return (strchr(valid_start, c) != NULL ||
-            ((0 == pos) && (strchr(valid_follow, c) != NULL)));
-}
-
-static char
-subst_vars_has_token(subst_parse_context_t* ctx)
-{
-    return (ctx->pos < ctx->w_len);
-}
-
-static char
-subst_vars_peek_token(subst_parse_context_t* ctx)
-{
-    return subst_vars_has_token(ctx) ? ctx->w[ctx->pos] : 0;
-}
-
-static int
-subst_vars_eat_token(subst_parse_context_t* ctx)
-{
-    if(subst_vars_has_token(ctx)) {
-        ctx->cur_tok = ctx->w[ctx->pos];
-        ctx->pos++;
-        return TRUE;
-    } else {
-        ctx->cur_tok = 0;
-        return FALSE;
-    }
-}
-
-static int
-subst_vars_parse_variable(subst_parse_context_t* ctx)
-{
-    int start = ctx->pos;
-    if(!subst_vars_has_token(ctx)) {
-      ctx->stream.put('$');
-        return 0;
-    }
-    int has_braces = subst_vars_peek_token(ctx) == '{';
-    if(has_braces)
-        subst_vars_eat_token(ctx);
-    int varname_start = ctx->pos;
-    int varname_len = 0;
-    while(subst_vars_has_token(ctx) &&
-          is_valid_variable_char(subst_vars_peek_token(ctx), varname_len)) {
-        varname_len++;
-        subst_vars_eat_token(ctx);
-    }
-    char* varname = strndup(&ctx->w[varname_start], varname_len);
-    int braces_ok = TRUE;
-    if(has_braces && ((!subst_vars_eat_token(ctx)) || ctx->cur_tok != '}'))
-        braces_ok = FALSE;
-    int ok = varname_len && braces_ok;
-    if(ok) {
-      // first lookup the variable in our stored table
-      const char* val = nullptr;
-      auto iter = ctx->variables->find(varname);
-      if (iter != ctx->variables->end()) {
-        val = iter->second.c_str();
-      } else {
-        val = getenv(varname);
-      }
-      // if that fails, then check for a similar environment variable
-      if (val) {
-        ctx->stream << val;
-      } else {
-        ok = FALSE;
-      }
-    }
-    if(!ok) {
-      ctx->stream.write(&ctx->w[start - 1], ctx->pos - start + 1);
-    }
-    free(varname);
-    return ok;
-}
-
-/**
- * Do variable expansion on a command argument.  This searches the argument for
- * text of the form $VARNAME and ${VARNAME}.  For each discovered variable, it
- * then expands the variable.  Values defined in the hashtable vars are used
- * first, followed by environment variable values.  If a variable expansion
- * fails, then the corresponding text is left unchanged.
- */
-static std::string
-subst_vars(const char* w, const StringStringMap& vars)
-{
-    subst_parse_context_t ctx;
-    ctx.w = w;
-    ctx.w_len = strlen(w);
-    ctx.pos = 0;
-    ctx.variables = &vars;
-
-    while(subst_vars_eat_token(&ctx)) {
-        char c = ctx.cur_tok;
-        if('\\' == c) {
-            if(subst_vars_eat_token(&ctx)) {
-              ctx.stream.put(c);
-            } else {
-              ctx.stream.put('\\');
-            }
-            continue;
-        }
-        // variable?
-        if('$' == c) {
-            subst_vars_parse_variable(&ctx);
-        } else {
-          ctx.stream.put(c);
-        }
-    }
-    return ctx.stream.str();
-}
-
 void ProcmanCommand::PrepareArgsAndEnvironment(const StringStringMap& variables) {
   if (argv_) {
     strfreev(argv_);
@@ -454,7 +446,9 @@ void ProcmanCommand::PrepareArgsAndEnvironment(const StringStringMap& variables)
       environment_[parts[0]] = parts[1];
     } else {
       // substitute variables
-      argv_[i - envCount] = strdup(subst_vars(argv[i], variables).c_str());
+      VariableExpander expander;
+      const std::string arg = expander.ExpandVariables(argv[i], variables);
+      argv_[i - envCount] = strdup(arg.c_str());
     }
   }
   strfreev(argv);
@@ -474,7 +468,9 @@ ProcmanCommand::ProcmanCommand(const std::string& exec_str,
 {}
 
 ProcmanCommand::~ProcmanCommand() {
-  strfreev (argv_);
+  if (argv_) {
+    strfreev (argv_);
+  }
 }
 
 
