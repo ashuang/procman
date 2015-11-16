@@ -92,7 +92,7 @@ static void dbgt (const char *fmt, ...)
     fprintf (stderr, "%s %s", timebuf, buf);
 }
 
-typedef struct _procman_deputy {
+struct ProcmanDeputy {
   procman_t *pm;
 
   lcm_t *lcm;
@@ -120,10 +120,10 @@ typedef struct _procman_deputy {
 
   int verbose;
   int exiting;
-} procman_deputy_t;
+};
 
-typedef struct _pmd_cmd_moreinfo {
-  procman_deputy_t *deputy;
+struct CommandMoreinfo {
+  ProcmanDeputy *deputy;
   // glib handles for IO watches
   GIOChannel *stdout_ioc;
   guint stdout_sid;
@@ -147,19 +147,19 @@ typedef struct _pmd_cmd_moreinfo {
   int num_kills_sent;
   int64_t first_kill_time;
   int remove_requested;
-} pmd_cmd_moreinfo_t;
+};
 
 // make this global so that the signal handler can access it
-static procman_deputy_t global_pmd;
+static ProcmanDeputy* g_pmd;
 
 static void
-transmit_proc_info (procman_deputy_t *s);
+transmit_proc_info (ProcmanDeputy *s);
 
 static gboolean
 on_scheduled_respawn(procman_cmd_t *cmd);
 
 static void
-transmit_str (procman_deputy_t *pmd, int sheriff_id, const char * str)
+transmit_str (ProcmanDeputy *pmd, int sheriff_id, const char * str)
 {
     procman_lcm_output_t msg;
     msg.deputy_name = pmd->hostname;
@@ -170,7 +170,7 @@ transmit_str (procman_deputy_t *pmd, int sheriff_id, const char * str)
 }
 
 static void
-printf_and_transmit (procman_deputy_t *pmd, int sheriff_id, const char *fmt, ...) {
+printf_and_transmit (ProcmanDeputy *pmd, int sheriff_id, const char *fmt, ...) {
     int len;
     char buf[256];
     va_list ap;
@@ -197,7 +197,7 @@ static int
 pipe_data_ready (GIOChannel *source, GIOCondition condition,
         procman_cmd_t *cmd)
 {
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
     int result = TRUE;
     int anycondition = 0;
 
@@ -208,43 +208,43 @@ pipe_data_ready (GIOChannel *source, GIOCondition condition,
             snprintf (buf, sizeof (buf), "procman [%s] read: %s (%d)\n",
                     cmd->ExecStr().c_str(), strerror (errno), errno);
             dbgt (buf);
-            transmit_str (&global_pmd, mi->sheriff_id, buf);
+            transmit_str (g_pmd, mi->sheriff_id, buf);
         } else if ( bytes_read == 0) {
             dbgt ("zero byte read\n");
         } else {
             buf[bytes_read] = '\0';
-            transmit_str (&global_pmd, mi->sheriff_id, buf);
+            transmit_str (g_pmd, mi->sheriff_id, buf);
         }
         anycondition = 1;
     }
     if (condition & G_IO_ERR) {
-        transmit_str (&global_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, mi->sheriff_id,
                 "procman deputy: detected G_IO_ERR.\n");
         dbgt ("G_IO_ERR from [%s]\n", cmd->Id().c_str());
         anycondition = 1;
     }
     if (condition & G_IO_HUP) {
-        transmit_str (&global_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, mi->sheriff_id,
                 "procman deputy: detected G_IO_HUP.  end of output\n");
         dbgt ("G_IO_HUP from [%s]\n", cmd->Id().c_str());
         result = FALSE;
         anycondition = 1;
     }
     if (condition & G_IO_NVAL) {
-        transmit_str (&global_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, mi->sheriff_id,
                 "procman deputy: detected G_IO_NVAL.  end of output\n");
         dbgt ("G_IO_NVAL from [%s]\n", cmd->Id().c_str());
         result = FALSE;
         anycondition = 1;
     }
     if (condition & G_IO_PRI) {
-        transmit_str (&global_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, mi->sheriff_id,
                 "procman deputy: unexpected G_IO_PRI... wtf?\n");
         dbgt ("G_IO_PRI from [%s]\n", cmd->Id().c_str());
         anycondition = 1;
     }
     if (condition & G_IO_OUT) {
-        transmit_str (&global_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, mi->sheriff_id,
                 "procman deputy: unexpected G_IO_OUT... wtf?\n");
         dbgt ("G_IO_OUT from [%s]\n", cmd->Id().c_str());
         anycondition = 1;
@@ -257,9 +257,9 @@ pipe_data_ready (GIOChannel *source, GIOCondition condition,
 }
 
 static void
-maybe_schedule_respawn(procman_deputy_t *pmd, procman_cmd_t *cmd)
+maybe_schedule_respawn(ProcmanDeputy *pmd, procman_cmd_t *cmd)
 {
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
     if(mi->auto_respawn && !mi->should_be_stopped && !pmd->exiting) {
         mi->respawn_timeout_id =
             g_timeout_add(mi->respawn_backoff, (GSourceFunc)on_scheduled_respawn, cmd);
@@ -267,14 +267,14 @@ maybe_schedule_respawn(procman_deputy_t *pmd, procman_cmd_t *cmd)
 }
 
 static int
-start_cmd (procman_deputy_t *pmd, procman_cmd_t *cmd, int desired_runid)
+start_cmd (ProcmanDeputy *pmd, procman_cmd_t *cmd, int desired_runid)
 {
     if(pmd->exiting) {
         return -1;
     }
 
     int status;
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
     mi->should_be_stopped = 0;
     mi->respawn_timeout_id = 0;
     // update the respawn backoff counter, to throttle how quickly a
@@ -319,11 +319,11 @@ start_cmd (procman_deputy_t *pmd, procman_cmd_t *cmd, int desired_runid)
 }
 
 static int
-stop_cmd (procman_deputy_t *pmd, procman_cmd_t *cmd)
+stop_cmd (ProcmanDeputy *pmd, procman_cmd_t *cmd)
 {
     if (!cmd->pid) return 0;
 
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
     mi->should_be_stopped = 1;
 
     if(mi->respawn_timeout_id)
@@ -350,13 +350,13 @@ stop_cmd (procman_deputy_t *pmd, procman_cmd_t *cmd)
 }
 
 static void
-check_for_dead_children (procman_deputy_t *pmd)
+check_for_dead_children (ProcmanDeputy *pmd)
 {
   ProcmanCommandPtr cmd = procman_check_for_dead_children(pmd->pm);
 
   while (cmd) {
     int status;
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
 
     // check the stdout pipes to see if there is anything from stdout /
     // stderr.
@@ -397,10 +397,10 @@ check_for_dead_children (procman_deputy_t *pmd)
     if (mi->remove_requested) {
       dbgt ("[%s] remove\n", cmd->Id().c_str());
       // cleanup the private data structure used
-      pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
+      CommandMoreinfo *mi = (CommandMoreinfo*) cmd->user;
       free(mi->group);
       free(mi->id);
-      free(mi);
+      delete mi;
       cmd->user = NULL;
       procman_remove_cmd (pmd->pm, cmd);
     } else {
@@ -413,16 +413,16 @@ check_for_dead_children (procman_deputy_t *pmd)
 }
 
 static gboolean
-on_quit_timeout(procman_deputy_t* pmd)
+on_quit_timeout(ProcmanDeputy* pmd)
 {
   for (ProcmanCommandPtr cmd : procman_get_cmds(pmd->pm)) {
     if (cmd->pid) {
       procman_kill_cmd (pmd->pm, cmd, SIGKILL);
     }
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
+    CommandMoreinfo* mi = (CommandMoreinfo*) cmd->user;
     free(mi->group);
     free(mi->id);
-    free(mi);
+    delete mi;
     cmd->user = NULL;
     procman_remove_cmd (pmd->pm, cmd);
   }
@@ -433,7 +433,7 @@ on_quit_timeout(procman_deputy_t* pmd)
 }
 
 static void
-glib_handle_signal (int signal, procman_deputy_t *pmd) {
+glib_handle_signal (int signal, ProcmanDeputy *pmd) {
     if (signal == SIGCHLD) {
         // a child process died.  check to see which one, and cleanup its
         // remains.
@@ -449,7 +449,7 @@ glib_handle_signal (int signal, procman_deputy_t *pmd) {
         // cleanly.
         for (ProcmanCommandPtr cmd : procman_get_cmds(pmd->pm)) {
             if (cmd->pid) {
-              pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+              CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
                 procman_kill_cmd (pmd->pm, cmd, mi->stop_signal);
                 if(mi->stop_time_allowed > max_stop_time_allowed)
                     max_stop_time_allowed = mi->stop_time_allowed;
@@ -480,7 +480,7 @@ glib_handle_signal (int signal, procman_deputy_t *pmd) {
 }
 
 static void
-transmit_proc_info (procman_deputy_t *s)
+transmit_proc_info (ProcmanDeputy *s)
 {
   int i;
   procman_lcm_deputy_info_t msg;
@@ -504,7 +504,7 @@ transmit_proc_info (procman_deputy_t *s)
 
   for (i=0; i<msg.ncmds; i++) {
     procman_cmd_t *cmd = allcmds[i];
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
 
     msg.cmds[i].cmd.exec_str = (char*) cmd->ExecStr().c_str();
     msg.cmds[i].cmd.command_id = mi->id;
@@ -532,7 +532,7 @@ transmit_proc_info (procman_deputy_t *s)
 }
 
 static void
-update_cpu_times (procman_deputy_t *s)
+update_cpu_times (ProcmanDeputy *s)
 {
     int status;
 
@@ -558,7 +558,7 @@ update_cpu_times (procman_deputy_t *s)
     }
 
     for (ProcmanCommandPtr cmd : procman_get_cmds (s->pm)) {
-        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+        CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
 
         if (cmd->pid) {
             status = procinfo_read_proc_cpu_mem (cmd->pid, &mi->cpu_time[1]);
@@ -597,7 +597,7 @@ update_cpu_times (procman_deputy_t *s)
 static gboolean
 on_scheduled_respawn(procman_cmd_t *cmd)
 {
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
     if(mi->auto_respawn && !mi->should_be_stopped && !mi->deputy->exiting) {
         start_cmd(mi->deputy, cmd, mi->actual_runid);
     }
@@ -605,7 +605,7 @@ on_scheduled_respawn(procman_cmd_t *cmd)
 }
 
 static gboolean
-one_second_timeout (procman_deputy_t *pmd)
+one_second_timeout (ProcmanDeputy *pmd)
 {
     update_cpu_times (pmd);
     transmit_proc_info (pmd);
@@ -613,7 +613,7 @@ one_second_timeout (procman_deputy_t *pmd)
 }
 
 static gboolean
-introspection_timeout (procman_deputy_t *s)
+introspection_timeout (ProcmanDeputy *s)
 {
     int mypid = getpid();
     proc_cpu_mem_t pinfo;
@@ -661,10 +661,10 @@ procmd_orders_find_cmd (const procman_lcm_orders_t *a, int32_t sheriff_id)
 }
 
 static procman_cmd_t *
-find_local_cmd (procman_deputy_t *s, int32_t sheriff_id)
+find_local_cmd (ProcmanDeputy *s, int32_t sheriff_id)
 {
   for (ProcmanCommandPtr cmd : procman_get_cmds(s->pm)) {
-    pmd_cmd_moreinfo_t *cmi = (pmd_cmd_moreinfo_t*)cmd->user;
+    CommandMoreinfo *cmi = (CommandMoreinfo*)cmd->user;
 
     if (cmi->sheriff_id == sheriff_id) {
       return cmd;
@@ -676,7 +676,7 @@ find_local_cmd (procman_deputy_t *s, int32_t sheriff_id)
 static void
 _set_command_group (procman_cmd_t *p, const char *group)
 {
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*) p->user;
     free (mi->group);
     mi->group = strdup (group);
 }
@@ -684,14 +684,14 @@ _set_command_group (procman_cmd_t *p, const char *group)
 static void
 _set_command_stop_signal (procman_cmd_t *p, int stop_signal)
 {
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*) p->user;
     mi->stop_signal = stop_signal;
 }
 
 static void
 _set_command_stop_time_allowed (procman_cmd_t *p, float stop_time_allowed)
 {
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*) p->user;
     mi->stop_time_allowed = stop_time_allowed;
 }
 
@@ -699,13 +699,13 @@ _set_command_stop_time_allowed (procman_cmd_t *p, float stop_time_allowed)
 static void
 _set_command_id (procman_cmd_t *p, const char *id)
 {
-    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
+    CommandMoreinfo *mi = (CommandMoreinfo*) p->user;
     free (mi->id);
     mi->id = strdup (id);
 }
 
 static void
-_handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
+_handle_orders2(ProcmanDeputy* s, const procman_lcm_orders_t* orders)
 {
     const GList *iter = NULL;
     s->norders_slm ++;
@@ -777,17 +777,17 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
 
         // do we already have this command somewhere?
         procman_cmd_t *p = find_local_cmd (s, cmd_msg->sheriff_id);
-        pmd_cmd_moreinfo_t *mi = NULL;
+        CommandMoreinfo *mi = NULL;
 
         if (p) {
-            mi = (pmd_cmd_moreinfo_t*) p->user;
+            mi = (CommandMoreinfo*) p->user;
         } else {
             // if not, then create it.
             if (s->verbose) dbgt ("adding new process (%s)\n", cmd_msg->cmd.exec_str);
             p = procman_add_cmd (s->pm, cmd_msg->cmd.exec_str, cmd_msg->cmd.command_id);
 
             // allocate a private data structure for glib info
-            mi = (pmd_cmd_moreinfo_t*) calloc (1, sizeof (pmd_cmd_moreinfo_t));
+            mi = new CommandMoreinfo();
             mi->deputy = s;
             mi->sheriff_id = cmd_msg->sheriff_id;
             mi->group = strdup (cmd_msg->cmd.group);
@@ -871,7 +871,7 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
     // orders, then stop and remove those commands
     std::vector<ProcmanCommandPtr> toremove;
     for (ProcmanCommandPtr cmd : procman_get_cmds (s->pm)) {
-        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+        CommandMoreinfo *mi = (CommandMoreinfo*)cmd->user;
         procman_lcm_cmd_desired_t *cmd_msg =
             procmd_orders_find_cmd (orders, mi->sheriff_id);
 
@@ -885,7 +885,7 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
 
     // cull orphaned commands
     for (ProcmanCommandPtr cmd : toremove) {
-        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
+        CommandMoreinfo *mi = (CommandMoreinfo*) cmd->user;
 
         if (cmd->pid) {
             dbgt ("[%s] scheduling removal\n", cmd->Id().c_str());
@@ -912,7 +912,7 @@ static void
 procman_deputy_order2_received (const lcm_recv_buf_t *rbuf, const char *channel,
         const procman_lcm_orders_t *orders, void *user_data)
 {
-    procman_deputy_t *deputy = (procman_deputy_t*) user_data;
+    ProcmanDeputy *deputy = (ProcmanDeputy*) user_data;
     _handle_orders2(deputy, orders);
 }
 
@@ -920,7 +920,7 @@ static void
 procman_deputy_discovery_received(const lcm_recv_buf_t* rbuf, const char* channel,
         const procman_lcm_discovery_t* msg, void* user_data)
 {
-    procman_deputy_t *pmd = (procman_deputy_t*)user_data;
+    ProcmanDeputy *pmd = (ProcmanDeputy*)user_data;
 
     int64_t now = timestamp_now();
     if(now < pmd->deputy_start_time + DISCOVERY_TIME_MS * 1000) {
@@ -942,7 +942,7 @@ static void
 procman_deputy_info2_received(const lcm_recv_buf_t *rbuf, const char *channel,
         const procman_lcm_deputy_info_t *msg, void *user_data)
 {
-    procman_deputy_t *pmd = (procman_deputy_t*) user_data;
+    ProcmanDeputy *pmd = (ProcmanDeputy*) user_data;
 
     int64_t now = timestamp_now();
     if(now < pmd->deputy_start_time + DISCOVERY_TIME_MS * 1000) {
@@ -959,7 +959,7 @@ procman_deputy_info2_received(const lcm_recv_buf_t *rbuf, const char *channel,
 }
 
 static gboolean
-discovery_timeout(procman_deputy_t* pmd)
+discovery_timeout(ProcmanDeputy* pmd)
 {
     int64_t now = timestamp_now();
     if(now < pmd->deputy_start_time + DISCOVERY_TIME_MS * 1000)
@@ -1089,9 +1089,9 @@ int main (int argc, char **argv)
          setlinebuf (stderr);
      }
 
-     procman_deputy_t *pmd = &global_pmd;
+     g_pmd = new ProcmanDeputy();
+     ProcmanDeputy* pmd = g_pmd;
 
-     memset (pmd, 0, sizeof (procman_deputy_t));
      pmd->lcm = lcm;
      pmd->verbose = verbose;
      pmd->norders_slm = 0;
@@ -1178,6 +1178,8 @@ int main (int argc, char **argv)
      lcm_destroy (pmd->lcm);
 
      if (pmd->last_sheriff_name) free (pmd->last_sheriff_name);
+
+     delete pmd;
 
      return 0;
 }
