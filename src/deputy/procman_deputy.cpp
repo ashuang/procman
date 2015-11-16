@@ -140,7 +140,7 @@ struct ProcmanDeputy {
   void InfoReceived(const lcm::ReceiveBuffer* rbuf,
       const std::string& channel, const deputy_info_t* msg);
 
-  procman_t *pm;
+  Procman *pm;
 
   lcm::LCM *lcm_;
 
@@ -750,7 +750,7 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
 
         // do we already have this command somewhere?
         DeputyCommand *mi = find_local_cmd(pmd, cmd_msg->sheriff_id);
-        ProcmanCommand* cmd = nullptr;
+        ProcmanCommandPtr cmd;
 
         if (mi) {
           cmd = mi->cmd;

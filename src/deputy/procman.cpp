@@ -57,8 +57,8 @@ static void dbgt (const char *fmt, ...)
 
 static ProcmanCommand * procman_cmd_create (const std::string& exec_str,
     const std::string& cmd_id, int32_t sheriff_id);
-static void procman_cmd_split_str (ProcmanCommand *pcmd, const StringStringMap& variables);
-static void CheckCommand(procman_t* pm, ProcmanCommandPtr cmd);
+static void procman_cmd_split_str (ProcmanCommandPtr cmd, const StringStringMap& variables);
+static void CheckCommand(Procman* pm, ProcmanCommandPtr cmd);
 
 ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
 {
@@ -78,13 +78,13 @@ ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
   return result;
 }
 
-procman_t::procman_t() :
+Procman::Procman() :
   options(),
   variables_() {}
 
-procman_t *procman_create (const ProcmanOptions& options)
+Procman *procman_create (const ProcmanOptions& options)
 {
-  procman_t *pm = new procman_t();
+  Procman *pm = new Procman();
 
   pm->options = options;
 
@@ -100,37 +100,37 @@ procman_t *procman_create (const ProcmanOptions& options)
 }
 
 void
-procman_destroy (procman_t *pm)
+procman_destroy (Procman *pm)
 {
   delete pm;
 }
 
-int procman_start_cmd (procman_t *pm, ProcmanCommand *p)
+int procman_start_cmd (Procman *pm, ProcmanCommandPtr cmd)
 {
     int status;
 
-    if (0 != p->pid) {
-        dbgt ("[%s] has non-zero PID.  not starting again\n", p->Id().c_str());
+    if (0 != cmd->pid) {
+        dbgt ("[%s] has non-zero PID.  not starting again\n", cmd->Id().c_str());
         return -1;
     } else {
-        dbgt ("[%s] starting\n", p->Id().c_str());
+        dbgt ("[%s] starting\n", cmd->Id().c_str());
 
-        procman_cmd_split_str(p, pm->variables_);
+        procman_cmd_split_str(cmd, pm->variables_);
 
         // close existing fd's
-        if (p->stdout_fd >= 0) {
-            close (p->stdout_fd);
-            p->stdout_fd = -1;
+        if (cmd->stdout_fd >= 0) {
+            close (cmd->stdout_fd);
+            cmd->stdout_fd = -1;
         }
-        p->stdin_fd = -1;
-        p->exit_status = 0;
+        cmd->stdin_fd = -1;
+        cmd->exit_status = 0;
 
         // make a backup of stderr, in case something bad happens during exec.
         // if exec succeeds, then we have a dangling file descriptor that
         // gets closed when the child exits... that's okay
         int stderr_backup = dup(STDERR_FILENO);
 
-        int pid = forkpty(&p->stdin_fd, NULL, NULL, NULL);
+        int pid = forkpty(&cmd->stdin_fd, NULL, NULL, NULL);
         if (0 == pid) {
 //            // block SIGINT (only allow the procman to kill the process now)
 //            sigset_t toblock;
@@ -139,17 +139,17 @@ int procman_start_cmd (procman_t *pm, ProcmanCommand *p)
 //            sigprocmask (SIG_BLOCK, &toblock, NULL);
 
             // set environment variables from the beginning of the command
-            for (int i=0;i<p->envc;i++){
-                setenv(p->envp[i][0],p->envp[i][1],1);
+            for (int i=0;i<cmd->envc;i++){
+                setenv(cmd->envp[i][0],cmd->envp[i][1],1);
             }
 
             // go!
-            execvp (p->argv[0], p->argv);
+            execvp (cmd->argv[0], cmd->argv);
 
             char ebuf[1024];
             snprintf (ebuf, sizeof(ebuf), "%s", strerror(errno));
-            dbgt("[%s] ERRROR executing [%s]\n", p->Id().c_str(), p->ExecStr().c_str());
-            dbgt("[%s] execv: %s\n", p->Id().c_str(), ebuf);
+            dbgt("[%s] ERRROR executing [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
+            dbgt("[%s] execv: %s\n", cmd->Id().c_str(), ebuf);
 
             // if execv returns, the command did not execute successfully
             // (e.g. permission denied or bad path or something)
@@ -157,8 +157,8 @@ int procman_start_cmd (procman_t *pm, ProcmanCommand *p)
             // restore stderr so we can barf a real error message
             close(STDERR_FILENO);
             dup2(stderr_backup, STDERR_FILENO);
-            dbgt("[%s] ERROR executing [%s]\n", p->Id().c_str(), p->ExecStr().c_str());
-            dbgt("[%s] execv: %s\n", p->Id().c_str(), ebuf);
+            dbgt("[%s] ERROR executing [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
+            dbgt("[%s] execv: %s\n", cmd->Id().c_str(), ebuf);
             close(stderr_backup);
 
             exit(-1);
@@ -167,15 +167,15 @@ int procman_start_cmd (procman_t *pm, ProcmanCommand *p)
             close(stderr_backup);
             return -1;
         } else {
-            p->pid = pid;
-            p->stdout_fd = p->stdin_fd;
+            cmd->pid = pid;
+            cmd->stdout_fd = cmd->stdin_fd;
             close(stderr_backup);
         }
     }
     return 0;
 }
 
-int procman_start_all_cmds (procman_t *pm)
+int procman_start_all_cmds (Procman *pm)
 {
   int status;
   for (ProcmanCommandPtr cmd : pm->commands_) {
@@ -194,40 +194,40 @@ int procman_start_all_cmds (procman_t *pm)
 }
 
 int
-procman_kill_cmd (procman_t *pm, ProcmanCommand *p, int signum)
+procman_kill_cmd (Procman *pm, ProcmanCommandPtr cmd, int signum)
 {
-  if (0 == p->pid) {
-    dbgt ("[%s] has no PID.  not stopping (already dead)\n", p->Id().c_str());
+  if (0 == cmd->pid) {
+    dbgt ("[%s] has no PID.  not stopping (already dead)\n", cmd->Id().c_str());
     return -EINVAL;
   }
   // get a list of the process's descendants
-  std::vector<int> descendants = procinfo_get_descendants(p->pid);
+  std::vector<int> descendants = procinfo_get_descendants(cmd->pid);
 
-  dbgt ("[%s] stop (signal %d)\n", p->Id().c_str(), signum);
-  if (0 != kill (p->pid, signum)) {
+  dbgt ("[%s] stop (signal %d)\n", cmd->Id().c_str(), signum);
+  if (0 != kill (cmd->pid, signum)) {
     return -errno;
   }
 
   // send the same signal to all of the process's descendants
   for (int child_pid : descendants) {
-    dbgt("signal %d to descendant %d (%p)\n", signum, child_pid, p);
+    dbgt("signal %d to descendant %d\n", signum, child_pid);
     kill(child_pid, signum);
 
-    auto iter = std::find(p->descendants_to_kill.begin(),
-        p->descendants_to_kill.end(), child_pid);
-    if (iter ==  p->descendants_to_kill.end()) {
-      p->descendants_to_kill.push_back(child_pid);
+    auto iter = std::find(cmd->descendants_to_kill.begin(),
+        cmd->descendants_to_kill.end(), child_pid);
+    if (iter ==  cmd->descendants_to_kill.end()) {
+      cmd->descendants_to_kill.push_back(child_pid);
     }
   }
   return 0;
 }
 
-int procman_stop_cmd (procman_t *pm, ProcmanCommand *p)
+int procman_stop_cmd (Procman *pm, ProcmanCommandPtr cmd)
 {
-    return procman_kill_cmd (pm, p, SIGINT);
+    return procman_kill_cmd(pm, cmd, SIGINT);
 }
 
-int procman_stop_all_cmds (procman_t *pm)
+int procman_stop_all_cmds (Procman *pm)
 {
   int ret = 0;
 
@@ -244,7 +244,7 @@ int procman_stop_all_cmds (procman_t *pm)
 }
 
 ProcmanCommandPtr
-procman_check_for_dead_children (procman_t *pm)
+procman_check_for_dead_children (Procman *pm)
 {
   int status;
 
@@ -288,7 +288,7 @@ procman_check_for_dead_children (procman_t *pm)
 }
 
 int
-procman_close_dead_pipes (procman_t *pm, ProcmanCommandPtr cmd)
+procman_close_dead_pipes (Procman *pm, ProcmanCommandPtr cmd)
 {
   if (cmd->StdoutFd() < 0 && cmd->StdinFd() < 0)
     return 0;
@@ -459,33 +459,33 @@ subst_vars(const char* w, const StringStringMap& vars)
 }
 
 static void
-procman_cmd_split_str (ProcmanCommand *pcmd, const StringStringMap& variables)
+procman_cmd_split_str (ProcmanCommandPtr cmd, const StringStringMap& variables)
 {
-    if (pcmd->argv) {
-        g_strfreev (pcmd->argv);
-        pcmd->argv = NULL;
+    if (cmd->argv) {
+        g_strfreev (cmd->argv);
+        cmd->argv = NULL;
     }
-    if (pcmd->envp) {
-        for(int i=0;i<pcmd->envc;i++)
-            g_strfreev (pcmd->envp[i]);
-        free(pcmd->envp);
-        pcmd->envp = NULL;
+    if (cmd->envp) {
+        for(int i=0;i<cmd->envc;i++)
+            g_strfreev (cmd->envp[i]);
+        free(cmd->envp);
+        cmd->envp = NULL;
     }
 
     // TODO don't use g_shell_parse_argv... it's not good with escape characters
     char ** argv=NULL;
     int argc = -1;
     GError *err = NULL;
-    gboolean parsed = g_shell_parse_argv(pcmd->ExecStr().c_str(), &argc,
+    gboolean parsed = g_shell_parse_argv(cmd->ExecStr().c_str(), &argc,
             &argv, &err);
 
     if(!parsed || err) {
         // unable to parse the command string as a Bourne shell command.
         // Do the simple thing and split it on spaces.
-        pcmd->envp = (char***) calloc(1, sizeof(char***));
-        pcmd->envc = 0;
-        pcmd->argv = strsplit_set_packed(pcmd->ExecStr().c_str(), " \t\n", 0);
-        for(pcmd->argc=0; pcmd->argv[pcmd->argc]; pcmd->argc++);
+        cmd->envp = (char***) calloc(1, sizeof(char***));
+        cmd->envc = 0;
+        cmd->argv = strsplit_set_packed(cmd->ExecStr().c_str(), " \t\n", 0);
+        for(cmd->argc=0; cmd->argv[cmd->argc]; cmd->argc++);
         g_error_free(err);
         return;
     }
@@ -495,16 +495,16 @@ procman_cmd_split_str (ProcmanCommand *pcmd, const StringStringMap& variables)
     char * equalSigns[512];
     while((equalSigns[envCount]=strchr(argv[envCount],'=')))
         envCount++;
-    pcmd->envc=envCount;
-    pcmd->argc=argc-envCount;
-    pcmd->envp = (char***) calloc(pcmd->envc+1,sizeof(char***));
-    pcmd->argv = (char**) calloc(pcmd->argc+1,sizeof(char**));
+    cmd->envc=envCount;
+    cmd->argc=argc-envCount;
+    cmd->envp = (char***) calloc(cmd->envc+1,sizeof(char***));
+    cmd->argv = (char**) calloc(cmd->argc+1,sizeof(char**));
     for (int i=0;i<argc;i++) {
         if (i<envCount)
-            pcmd->envp[i]=g_strsplit(argv[i],"=",2);
+            cmd->envp[i]=g_strsplit(argv[i],"=",2);
         else {
             // substitute variables
-            pcmd->argv[i-envCount]=subst_vars(argv[i], variables);
+            cmd->argv[i-envCount]=subst_vars(argv[i], variables);
         }
     }
     g_strfreev(argv);
@@ -542,18 +542,18 @@ procman_cmd_create(const std::string& exec_str, const std::string& cmd_id, int32
 }
 
 const std::vector<ProcmanCommandPtr>&
-procman_get_cmds (procman_t *pm) {
+procman_get_cmds (Procman *pm) {
   return pm->commands_;
 }
 
 void
-procman_remove_all_variables(procman_t* pm)
+procman_remove_all_variables(Procman* pm)
 {
   pm->variables_.clear();
 }
 
 ProcmanCommandPtr
-procman_add_cmd (procman_t *pm, const std::string& exec_str, const std::string& cmd_id) {
+procman_add_cmd (Procman *pm, const std::string& exec_str, const std::string& cmd_id) {
   // pick a suitable ID
   int32_t sheriff_id;
 
@@ -583,7 +583,7 @@ procman_add_cmd (procman_t *pm, const std::string& exec_str, const std::string& 
 }
 
 bool
-procman_remove_cmd (procman_t *pm, ProcmanCommandPtr cmd)
+procman_remove_cmd (Procman *pm, ProcmanCommandPtr cmd)
 {
   CheckCommand(pm, cmd);
 
@@ -599,12 +599,11 @@ procman_remove_cmd (procman_t *pm, ProcmanCommandPtr cmd)
   // remove
   pm->commands_.erase(std::find(pm->commands_.begin(), pm->commands_.end(),
         cmd));
-  delete cmd;
   return true;
 }
 
 CommandStatus
-procman_get_cmd_status (procman_t *pm, ProcmanCommandPtr cmd)
+procman_get_cmd_status (Procman *pm, ProcmanCommandPtr cmd)
 {
   if (cmd->Pid() > 0) {
     return PROCMAN_CMD_RUNNING;
@@ -628,7 +627,7 @@ procman_cmd_set_id(ProcmanCommandPtr cmd, const std::string& cmd_id)
 }
 
 static void
-CheckCommand(procman_t* pm, ProcmanCommandPtr cmd) {
+CheckCommand(Procman* pm, ProcmanCommandPtr cmd) {
   if (std::find(pm->commands_.begin(), pm->commands_.end(), cmd) ==
       pm->commands_.end()) {
     throw std::invalid_argument("invalid command");
