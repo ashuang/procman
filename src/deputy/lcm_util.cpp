@@ -4,6 +4,8 @@
 
 #include "lcm_util.hpp"
 
+namespace procman {
+
 //#define dbg(...) fprintf (stderr, __VA_ARGS__)
 #define dbg(...)
 
@@ -76,3 +78,5 @@ lcmu_glib_mainloop_detach_lcm (lcm_t *lcm)
     }
     return 0;
 }
+
+}  // namespace procman

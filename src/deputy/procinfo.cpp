@@ -16,6 +16,8 @@
 
 #include "procinfo.hpp"
 
+namespace procman {
+
 static void strsplit (char *buf, char **words, int maxwords)
 {
     int inword = 0;
@@ -284,3 +286,5 @@ procinfo_read_sys_cpu_mem (sys_cpu_mem_t *s)
     return 0;
 #endif
 }
+
+}  // namespace procman

@@ -1,5 +1,5 @@
-#ifndef __signal_pipe_h__
-#define __signal_pipe_h__
+#ifndef PROCMAN_SIGNAL_PIPE_HPP__
+#define PROCMAN_SIGNAL_PIPE_HPP__
 
 /* signal_pipe provides convenience wrappers to convert unix signals into glib
  * events.
@@ -25,9 +25,7 @@
 
 #include <glib.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace procman {
 
 typedef void (*signal_pipe_glib_handler_t) (int signal, void *user_data);
 
@@ -53,8 +51,6 @@ int signal_pipe_attach_glib (signal_pipe_glib_handler_t user_func,
 // also invokes signal_pipe_cleanup() on receiving these signals.
 int signal_pipe_glib_quit_on_kill (GMainLoop *mainloop);
 
-#ifdef __cplusplus
-}
-#endif
+}  // namespace procman
 
-#endif
+#endif  // PROCMAN_SIGNAL_PIPE_HPP__

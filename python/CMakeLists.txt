@@ -24,5 +24,5 @@ set(procman_sheriff ${CMAKE_CURRENT_BINARY_DIR}/procman-sheriff)
 file(WRITE ${procman_sheriff}
            "#!/bin/sh\n"
            "export PYTHONPATH=${CMAKE_INSTALL_PREFIX}/${py_install_dir}:\${PYTHONPATH}\n"
-           "exec ${PYTHON_EXECUTABLE} -m procman.sheriff_gtk.sheriff_gtk\n")
+           "exec ${PYTHON_EXECUTABLE} -m procman.sheriff_gtk.sheriff_gtk $*\n")
 install(PROGRAMS ${procman_sheriff} DESTINATION bin)

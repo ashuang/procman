@@ -1,13 +1,11 @@
-#ifndef __lc_util_hpp__
-#define __lc_util_hpp__
+#ifndef PROCMAN_LCM_UTIL_HPP__
+#define PROCMAN_LCM_UTIL_HPP__
 
 #include <glib.h>
 
 #include <lcm/lcm.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace procman {
 
 /**
  * lcu_mainloop_attach_lc (lc_t *lc)
@@ -23,8 +21,6 @@ int lcmu_glib_mainloop_attach_lcm (lcm_t *lcm);
 
 int lcmu_glib_mainloop_detach_lcm (lcm_t *lcm);
 
-#ifdef __cplusplus
-}
-#endif
+}  // namespace procman
 
-#endif
+#endif  // PROCMAN_LCM_UTIL_HPP__

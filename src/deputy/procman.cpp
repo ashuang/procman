@@ -31,6 +31,8 @@
 #include "procman.hpp"
 #include "procinfo.hpp"
 
+namespace procman {
+
 static void dbgt (const char *fmt, ...)
 {
     va_list ap;
@@ -699,4 +701,6 @@ procman_cmd_set_name(procman_cmd_t* cmd, const char* cmd_name)
 {
     g_free(cmd->cmd_name);
     cmd->cmd_name = g_strdup(cmd_name);
+}
+
 }

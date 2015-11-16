@@ -1,15 +1,15 @@
-#ifndef __procman_engine_h__
-#define __procman_engine_h__
+#ifndef PROCMAN_PROCMAN_HPP__
+#define PROCMAN_PROCMAN_HPP__
 
-// procman provides a set of data structures and functions for managing a
-// number of separate processes
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+#include <map>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include <stdint.h>
 #include <glib.h>
+
+namespace procman {
 
 typedef enum {
     PROCMAN_CMD_STOPPED = 0,
@@ -153,8 +153,6 @@ void procman_cmd_set_name(procman_cmd_t* cmd, const char* cmd_name);
 
 #define PROCMAN_MAX_MESSAGE_AGE_USEC 60000000LL
 
-#ifdef __cplusplus
-}
-#endif
+}  // namespace procman
 
-#endif
+#endif  // PROCMAN_PROCMAN_HPP__

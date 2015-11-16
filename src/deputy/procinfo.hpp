@@ -1,14 +1,12 @@
-#ifndef __procinfo_h__
-#define __procinfo_h__
+#ifndef PROCMAN_PROCINFO_HPP__
+#define PROCMAN_PROCINFO_HPP__
 
 // functions for reading how much CPU and memory are being used by individual
 // processes and the system as a whole
 
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace procman {
 
 typedef struct {
     int pid;
@@ -49,8 +47,6 @@ GArray* procinfo_get_descendants (int pid);
 
 int procinfo_is_orphaned_child_of(int orphan, int parent);
 
-#ifdef __cplusplus
-}
-#endif
+}  // namespace procman
 
-#endif
+#endif   // PROCMAN_PROCINFO_HPP__

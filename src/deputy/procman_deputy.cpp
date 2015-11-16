@@ -47,6 +47,8 @@
 #include "signal_pipe.hpp"
 #include "lcm_util.hpp"
 
+namespace procman {
+
 #define ESTIMATED_MAX_CLOCK_ERROR_RATE 1.001
 
 #define MIN_RESPAWN_DELAY_MS 10
@@ -1035,6 +1037,10 @@ static void usage()
             "  2   Conflicting deputy detected on the network\n"
           );
 }
+
+}  // namespace procman
+
+using namespace procman;
 
 int main (int argc, char **argv)
 {

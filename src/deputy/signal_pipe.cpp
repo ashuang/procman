@@ -7,6 +7,8 @@
 
 #include "signal_pipe.hpp"
 
+namespace procman {
+
 #define dbg(args...) fprintf(stderr, args)
 #undef dbg
 #define dbg(args...)
@@ -152,3 +154,5 @@ signal_pipe_glib_quit_on_kill (GMainLoop *mainloop)
 
     return signal_pipe_attach_glib (spgqok_handler, mainloop);
 }
+
+}  // namespace procman
