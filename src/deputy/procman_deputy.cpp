@@ -821,7 +821,7 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
         }
 
         // check if the command needs to be started or stopped
-        procman_cmd_status_t cmd_status = procman_get_cmd_status (s->pm, p);
+        CommandStatus cmd_status = procman_get_cmd_status (s->pm, p);
 
         // rename a command?  does not kill a running command, so effect does
         // not apply until command is restarted.

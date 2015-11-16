@@ -58,7 +58,7 @@ static void dbgt (const char *fmt, ...)
 static procman_cmd_t * procman_cmd_create (const std::string& exec_str,
     const std::string& cmd_id, int32_t sheriff_id);
 static void procman_cmd_destroy (procman_cmd_t *cmd);
-static void procman_cmd_split_str (procman_cmd_t *pcmd, GHashTable* variables);
+static void procman_cmd_split_str (procman_cmd_t *pcmd, const StringStringMap& variables);
 
 ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
 {
@@ -78,14 +78,15 @@ ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
   return result;
 }
 
+procman_t::procman_t() :
+  options(),
+  variables_() {}
+
 procman_t *procman_create (const ProcmanOptions& options)
 {
   procman_t *pm = new procman_t();
 
   pm->options = options;
-
-  pm->variables = g_hash_table_new_full(g_str_hash, g_str_equal,
-      (GDestroyNotify)g_free, (GDestroyNotify)g_free);
 
   // add the bin path to the PATH environment variable
   //
@@ -109,8 +110,6 @@ procman_destroy (procman_t *pm)
   g_list_free (pm->commands);
   pm->commands = NULL;
 
-  g_hash_table_destroy(pm->variables);
-
   delete pm;
 }
 
@@ -124,7 +123,7 @@ int procman_start_cmd (procman_t *pm, procman_cmd_t *p)
     } else {
         dbgt ("[%s] starting\n", p->Id().c_str());
 
-        procman_cmd_split_str(p, pm->variables);
+        procman_cmd_split_str(p, pm->variables_);
 
         // close existing fd's
         if (p->stdout_fd >= 0) {
@@ -354,7 +353,7 @@ typedef struct {
     int pos;
     char cur_tok;
     GString* result;
-    GHashTable* variables;
+    const StringStringMap* variables;
 } subst_parse_context_t;
 
 static int
@@ -415,15 +414,20 @@ subst_vars_parse_variable(subst_parse_context_t* ctx)
         braces_ok = FALSE;
     int ok = varname_len && braces_ok;
     if(ok) {
-        // first lookup the variable in our stored table
-        char* val = (char*) g_hash_table_lookup(ctx->variables, varname);
-        // if that fails, then check for a similar environment variable
-        if(!val)
-            val = getenv(varname);
-        if(val)
-            g_string_append(ctx->result, val);
-        else
-            ok = FALSE;
+      // first lookup the variable in our stored table
+      const char* val = nullptr;
+      auto iter = ctx->variables->find(varname);
+      if (iter != ctx->variables->end()) {
+        val = iter->second.c_str();
+      } else {
+        val = getenv(varname);
+      }
+      // if that fails, then check for a similar environment variable
+      if (val) {
+        g_string_append(ctx->result, val);
+      } else {
+        ok = FALSE;
+      }
     }
     if(!ok)
         g_string_append_len(ctx->result, &ctx->w[start - 1], ctx->pos - start + 1);
@@ -439,14 +443,14 @@ subst_vars_parse_variable(subst_parse_context_t* ctx)
  * fails, then the corresponding text is left unchanged.
  */
 static char*
-subst_vars(const char* w, GHashTable* vars)
+subst_vars(const char* w, const StringStringMap& vars)
 {
     subst_parse_context_t ctx;
     ctx.w = w;
     ctx.w_len = strlen(w);
     ctx.pos = 0;
     ctx.result = g_string_sized_new(ctx.w_len * 2);
-    ctx.variables = vars;
+    ctx.variables = &vars;
 
     while(subst_vars_eat_token(&ctx)) {
         char c = ctx.cur_tok;
@@ -471,7 +475,7 @@ subst_vars(const char* w, GHashTable* vars)
 }
 
 static void
-procman_cmd_split_str (procman_cmd_t *pcmd, GHashTable* variables)
+procman_cmd_split_str (procman_cmd_t *pcmd, const StringStringMap& variables)
 {
     if (pcmd->argv) {
         g_strfreev (pcmd->argv);
@@ -561,21 +565,9 @@ procman_get_cmds (procman_t *pm) {
 }
 
 void
-procman_set_variable(procman_t* pm, const char* name, const char* val)
-{
-    g_hash_table_insert(pm->variables, g_strdup(name), g_strdup(val));
-}
-
-void
-procman_remove_variable(procman_t* pm, const char* name)
-{
-    g_hash_table_remove(pm->variables, name);
-}
-
-void
 procman_remove_all_variables(procman_t* pm)
 {
-    g_hash_table_remove_all(pm->variables);
+  pm->variables_.clear();
 }
 
 procman_cmd_t*
@@ -640,13 +632,12 @@ procman_remove_cmd (procman_t *pm, procman_cmd_t *cmd)
     return 0;
 }
 
-procman_cmd_status_t
+CommandStatus
 procman_get_cmd_status (procman_t *pm, procman_cmd_t *cmd)
 {
-    if (cmd->pid > 0) return PROCMAN_CMD_RUNNING;
-    if (cmd->pid == 0) return PROCMAN_CMD_STOPPED;
-
-    return PROCMAN_CMD_INVALID;
+  if (cmd->pid > 0) return PROCMAN_CMD_RUNNING;
+  if (cmd->pid == 0) return PROCMAN_CMD_STOPPED;
+  return PROCMAN_CMD_INVALID;
 }
 
 procman_cmd_t *

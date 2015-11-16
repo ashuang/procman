@@ -11,11 +11,13 @@
 
 namespace procman {
 
-typedef enum {
+typedef std::map<std::string, std::string> StringStringMap;
+
+enum CommandStatus {
     PROCMAN_CMD_STOPPED = 0,
     PROCMAN_CMD_RUNNING,
     PROCMAN_CMD_INVALID
-} procman_cmd_status_t;
+};
 
 struct ProcmanOptions {
   static ProcmanOptions Default(int argc, char** argv);
@@ -58,9 +60,11 @@ struct procman_cmd_t {
 };
 
 struct procman_t {
+  procman_t();
+
   ProcmanOptions options;
   GList *commands;
-  GHashTable* variables;
+  StringStringMap variables_;
 };
 
 
@@ -74,18 +78,6 @@ void procman_destroy (procman_t *pm);
 //
 // Do not modify this list, or it's contents!
 const GList* procman_get_cmds (procman_t *pm);
-
-/**
- * Sets a variable.  Variable expansion will be performed on commands with
- * variables of the form $VARNAME or ${VARNAME}, for variable names in this
- * hash table.
- */
-void procman_set_variable(procman_t* pm, const char* name, const char* val);
-
-/**
- * Removes a variable from the variable expansion table.
- */
-void procman_remove_variable(procman_t* pm, const char* name);
 
 /**
  * Removes all variables from the variable expansion table.
@@ -146,7 +138,7 @@ int procman_close_dead_pipes (procman_t *pm, procman_cmd_t *cmd);
 
 /* returns 0  TODO
  */
-procman_cmd_status_t procman_get_cmd_status (procman_t *pm, procman_cmd_t *cmd);
+CommandStatus procman_get_cmd_status (procman_t *pm, procman_cmd_t *cmd);
 
 /* Changes the command that will be executed for a procman_cmd_t
  * no effect until the command is started again (if it's currently running)
