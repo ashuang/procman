@@ -57,8 +57,8 @@ static void dbgt (const char *fmt, ...)
 
 static procman_cmd_t * procman_cmd_create (const std::string& exec_str,
     const std::string& cmd_id, int32_t sheriff_id);
-static void procman_cmd_destroy (procman_cmd_t *cmd);
 static void procman_cmd_split_str (procman_cmd_t *pcmd, const StringStringMap& variables);
+static void CheckCommand(procman_t* pm, ProcmanCommandPtr cmd);
 
 ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
 {
@@ -102,14 +102,6 @@ procman_t *procman_create (const ProcmanOptions& options)
 void
 procman_destroy (procman_t *pm)
 {
-  GList *iter;
-  for (iter = pm->commands; iter != NULL; iter = iter->next) {
-    procman_cmd_t *p = (procman_cmd_t*)iter->data;
-    procman_cmd_destroy (p);
-  }
-  g_list_free (pm->commands);
-  pm->commands = NULL;
-
   delete pm;
 }
 
@@ -185,22 +177,20 @@ int procman_start_cmd (procman_t *pm, procman_cmd_t *p)
 
 int procman_start_all_cmds (procman_t *pm)
 {
-    GList *iter;
-    int status;
-    for (iter = pm->commands; iter != NULL; iter = iter->next) {
-        procman_cmd_t *p = (procman_cmd_t*)iter->data;
-        if (0 == p->pid) {
-            status = procman_start_cmd (pm, p);
-            if (0 != status) {
-                // if the command couldn't be started, then abort everything
-                // and return
-                procman_stop_all_cmds (pm);
+  int status;
+  for (ProcmanCommandPtr cmd : pm->commands_) {
+    if (0 == cmd->pid) {
+      status = procman_start_cmd (pm, cmd);
+      if (0 != status) {
+        // if the command couldn't be started, then abort everything
+        // and return
+        procman_stop_all_cmds (pm);
 
-                return status;
-            }
-        }
+        return status;
+      }
     }
-    return 0;
+  }
+  return 0;
 }
 
 int
@@ -239,88 +229,82 @@ int procman_stop_cmd (procman_t *pm, procman_cmd_t *p)
 
 int procman_stop_all_cmds (procman_t *pm)
 {
-    GList *iter;
-    int ret = 0;
-    int status;
+  int ret = 0;
 
-    // loop through each managed process and try to stop it
-    for (iter = pm->commands; iter != NULL; iter = iter->next) {
-        procman_cmd_t *p = (procman_cmd_t*)iter->data;
-        status = procman_stop_cmd (pm, p);
-
-        if (0 != status) {
-            ret = status;
-            // If something bad happened, try to stop the other processes, but
-            // still return an error
-        }
+  // loop through each managed process and try to stop it
+  for (ProcmanCommandPtr cmd : pm->commands_) {
+    int status = procman_stop_cmd (pm, cmd);
+    if (0 != status) {
+      ret = status;
+      // If something bad happened, try to stop the other processes, but
+      // still return an error
     }
-    return ret;
+  }
+  return ret;
+}
+
+ProcmanCommandPtr
+procman_check_for_dead_children (procman_t *pm)
+{
+  int status;
+
+  // check for dead children
+  ProcmanCommandPtr dead_child = NULL;
+  int pid = waitpid (-1, &status, WNOHANG);
+  if(pid <= 0)
+    return 0;
+
+  for (ProcmanCommandPtr cmd : pm->commands_) {
+    if(cmd->Pid() == 0 || pid != cmd->Pid())
+      continue;
+    dead_child = cmd;
+    cmd->pid = 0;
+    cmd->exit_status = status;
+
+    if (WIFSIGNALED (status)) {
+      int signum = WTERMSIG (status);
+      dbgt ("[%s] terminated by signal %d (%s)\n",
+          cmd->Id().c_str(), signum, strsignal (signum));
+    } else if (status != 0) {
+      dbgt ("[%s] exited with status %d\n",
+          cmd->Id().c_str(), WEXITSTATUS (status));
+    } else {
+      dbgt ("[%s] exited\n", cmd->Id().c_str());
+    }
+
+    // check for and kill orphaned children.
+    for (int child_pid : cmd->descendants_to_kill) {
+      if(procinfo_is_orphaned_child_of(child_pid, pid)) {
+        dbgt("sending SIGKILL to orphan process %d\n", child_pid);
+        kill(child_pid, SIGKILL);
+      }
+    }
+
+    return dead_child;
+  }
+
+  dbgt ("reaped [%d] but couldn't find process\n", pid);
+  return dead_child;
 }
 
 int
-procman_check_for_dead_children (procman_t *pm, procman_cmd_t **dead_child)
+procman_close_dead_pipes (procman_t *pm, ProcmanCommandPtr cmd)
 {
-    int status;
-
-    // check for dead children
-    *dead_child = NULL;
-    int pid = waitpid (-1, &status, WNOHANG);
-    if(pid <= 0)
-        return 0;
-
-    GList *iter;
-    for (iter = pm->commands; iter != NULL; iter = iter->next) {
-        procman_cmd_t *p = (procman_cmd_t*)iter->data;
-        if(p->pid == 0 || pid != p->pid)
-            continue;
-        *dead_child = p;
-        p->pid = 0;
-        p->exit_status = status;
-
-        if (WIFSIGNALED (status)) {
-            int signum = WTERMSIG (status);
-            dbgt ("[%s] terminated by signal %d (%s)\n",
-                    p->Id().c_str(), signum, strsignal (signum));
-        } else if (status != 0) {
-            dbgt ("[%s] exited with status %d\n",
-                    p->Id().c_str(), WEXITSTATUS (status));
-        } else {
-          dbgt ("[%s] exited\n", p->Id().c_str());
-        }
-
-        // check for and kill orphaned children.
-        for (int child_pid : p->descendants_to_kill) {
-          if(procinfo_is_orphaned_child_of(child_pid, pid)) {
-            dbgt("sending SIGKILL to orphan process %d\n", child_pid);
-            kill(child_pid, SIGKILL);
-          }
-        }
-
-        return status;
-    }
-
-    dbgt ("reaped [%d] but couldn't find process\n", pid);
+  if (cmd->StdoutFd() < 0 && cmd->StdinFd() < 0)
     return 0;
-}
 
-int
-procman_close_dead_pipes (procman_t *pm, procman_cmd_t *cmd)
-{
-    if (cmd->stdout_fd < 0 && cmd->stdin_fd < 0)
-        return 0;
-
-    if (cmd->pid) {
-        dbgt ("refusing to close pipes for command "
-                "with nonzero pid [%s] [%d]\n",
-                cmd->Id().c_str(), cmd->pid);
-        return 0;
-    }
-    if (cmd->stdout_fd >= 0) {
-        close (cmd->stdout_fd);
-    }
-    cmd->stdin_fd = -1;
-    cmd->stdout_fd = -1;
+  if (cmd->Pid()) {
+    dbgt ("refusing to close pipes for command "
+        "with nonzero pid [%s] [%d]\n",
+        cmd->Id().c_str(), cmd->Pid());
     return 0;
+  }
+  if (cmd->StdoutFd() >= 0) {
+    close(cmd->StdoutFd());
+  }
+  cmd->stdin_fd = -1;
+  cmd->stdout_fd = -1;
+  return 0;
 }
 
 /**
@@ -531,6 +515,14 @@ procman_cmd_t::procman_cmd_t() :
   descendants_to_kill() {
 }
 
+procman_cmd_t::~procman_cmd_t() {
+  g_strfreev (argv);
+  for (int i = 0; i<envc; i++) {
+    g_strfreev(envp[i]);
+  }
+  free(envp);
+}
+
 static procman_cmd_t *
 procman_cmd_create(const std::string& exec_str, const std::string& cmd_id, int32_t sheriff_id)
 {
@@ -549,19 +541,9 @@ procman_cmd_create(const std::string& exec_str, const std::string& cmd_id, int32
   return pcmd;
 }
 
-static void
-procman_cmd_destroy (procman_cmd_t *cmd)
-{
-  g_strfreev (cmd->argv);
-  for(int i=0;i<cmd->envc;i++)
-    g_strfreev (cmd->envp[i]);
-  free(cmd->envp);
-  delete cmd;
-}
-
-const GList *
+const std::vector<ProcmanCommandPtr>&
 procman_get_cmds (procman_t *pm) {
-    return pm->commands;
+  return pm->commands_;
 }
 
 void
@@ -570,108 +552,88 @@ procman_remove_all_variables(procman_t* pm)
   pm->variables_.clear();
 }
 
-procman_cmd_t*
+ProcmanCommandPtr
 procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_id)
 {
-    // pick a suitable ID
-    int32_t sheriff_id;
+  // pick a suitable ID
+  int32_t sheriff_id;
 
-    // TODO make this more efficient (i.e. sort the existing sheriff_ids)
-    //      this implementation is O (n^2)
-    for (sheriff_id=1; sheriff_id<INT_MAX; sheriff_id++) {
-        int collision = 0;
-        GList *iter;
-        for (iter=pm->commands; iter; iter=iter->next) {
-            procman_cmd_t *cmd = (procman_cmd_t*)iter->data;
-            if (cmd->sheriff_id == sheriff_id) {
-                collision = 1;
-                break;
-            }
-        }
-        if (! collision) break;
+  // TODO make this more efficient (i.e. sort the existing sheriff_ids)
+  //      this implementation is O (n^2)
+  for (sheriff_id=1; sheriff_id<INT_MAX; sheriff_id++) {
+    auto iter = std::find_if(pm->commands_.begin(), pm->commands_.end(),
+        [sheriff_id](ProcmanCommandPtr cmd) {
+        return cmd->SheriffId() == sheriff_id;
+        });
+    if (iter != pm->commands_.end()) {
+      break;
     }
-    if (sheriff_id == INT_MAX) {
-        dbgt ("way too many commands on the system....\n");
-        return NULL;
-    }
+  }
+  if (sheriff_id == INT_MAX) {
+    dbgt ("way too many commands on the system....\n");
+    return ProcmanCommandPtr();
+  }
 
-    procman_cmd_t *newcmd = procman_cmd_create(cmd_str, cmd_id, sheriff_id);
-    if (newcmd) {
-        pm->commands = g_list_append (pm->commands, newcmd);
-    }
+  ProcmanCommandPtr newcmd(procman_cmd_create(cmd_str, cmd_id, sheriff_id));
+  if (newcmd) {
+    pm->commands_.push_back(newcmd);
+  }
 
-    dbgt ("[%s] new command [%s]\n", newcmd->Id().c_str(), newcmd->ExecStr().c_str());
-    return newcmd;
+  dbgt ("[%s] new command [%s]\n", newcmd->Id().c_str(), newcmd->ExecStr().c_str());
+  return newcmd;
 }
 
-int
-procman_remove_cmd (procman_t *pm, procman_cmd_t *cmd)
+bool
+procman_remove_cmd (procman_t *pm, ProcmanCommandPtr cmd)
 {
-    // check that cmd is actually in the list
-    GList *toremove = g_list_find (pm->commands, cmd);
-    if (! toremove) {
-        dbgt ("procman ERRROR: %s does not appear to be managed "
-                "by this procman!!\n",
-                cmd->ExecStr().c_str());
-        return -1;
-    }
+  CheckCommand(pm, cmd);
 
-    // stop the command (if it's running)
-    if (cmd->pid) {
-        dbgt ("procman ERROR: refusing to remove running command %s\n",
-                cmd->ExecStr().c_str());
-        return -1;
-    }
+  // stop the command (if it's running)
+  if (cmd->Pid()) {
+    dbgt ("procman ERROR: refusing to remove running command %s\n",
+        cmd->ExecStr().c_str());
+    return false;
+  }
 
-    procman_close_dead_pipes (pm, cmd);
+  procman_close_dead_pipes(pm, cmd);
 
-    // remove and free
-    pm->commands = g_list_remove_link (pm->commands, toremove);
-    g_list_free_1 (toremove);
-    procman_cmd_destroy (cmd);
-    return 0;
+  // remove
+  pm->commands_.erase(std::find(pm->commands_.begin(), pm->commands_.end(),
+        cmd));
+  delete cmd;
+  return true;
 }
 
 CommandStatus
-procman_get_cmd_status (procman_t *pm, procman_cmd_t *cmd)
+procman_get_cmd_status (procman_t *pm, ProcmanCommandPtr cmd)
 {
-  if (cmd->pid > 0) return PROCMAN_CMD_RUNNING;
-  if (cmd->pid == 0) return PROCMAN_CMD_STOPPED;
+  if (cmd->Pid() > 0) {
+    return PROCMAN_CMD_RUNNING;
+  }
+  if (cmd->Pid() == 0) {
+    return PROCMAN_CMD_STOPPED;
+  }
   return PROCMAN_CMD_INVALID;
 }
 
-procman_cmd_t *
-procman_find_cmd (procman_t *pm, const char *cmd_str)
-{
-    GList *iter;
-    for (iter=pm->commands; iter; iter=iter->next) {
-        procman_cmd_t *p = (procman_cmd_t*)iter->data;
-        if (! strcmp (p->ExecStr().c_str(), cmd_str)) return p;
-    }
-    return NULL;
-}
-
-procman_cmd_t *
-procman_find_cmd_by_id (procman_t *pm, int32_t sheriff_id)
-{
-    GList *iter;
-    for (iter=pm->commands; iter; iter=iter->next) {
-        procman_cmd_t *p = (procman_cmd_t*)iter->data;
-        if (p->sheriff_id == sheriff_id) return p;
-    }
-    return NULL;
-}
-
 void
-procman_cmd_change_str (procman_cmd_t *cmd, const char *cmd_str)
+procman_cmd_change_str (ProcmanCommandPtr cmd, const char *cmd_str)
 {
   cmd->exec_str_ = cmd_str;
 }
 
 void
-procman_cmd_set_id(procman_cmd_t* cmd, const char* cmd_id)
+procman_cmd_set_id(ProcmanCommandPtr cmd, const char* cmd_id)
 {
   cmd->cmd_id_ = cmd_id;
+}
+
+static void
+CheckCommand(procman_t* pm, ProcmanCommandPtr cmd) {
+  if (std::find(pm->commands_.begin(), pm->commands_.end(), cmd) ==
+      pm->commands_.end()) {
+    throw std::invalid_argument("invalid command");
+  }
 }
 
 }

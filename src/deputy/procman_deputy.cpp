@@ -93,60 +93,60 @@ static void dbgt (const char *fmt, ...)
 }
 
 typedef struct _procman_deputy {
-    procman_t *pm;
+  procman_t *pm;
 
-    lcm_t *lcm;
+  lcm_t *lcm;
 
-    char hostname[1024];
+  char hostname[1024];
 
-    GMainLoop * mainloop;
+  GMainLoop * mainloop;
 
-    int norders_slm;       // total procman_lcm_orders_t observed Since Last MARK
-    int norders_forme_slm; // total procman_lcm_orders_t for this deputy slm
-    int nstale_orders_slm; // total stale procman_lcm_orders_t for this deputy slm
+  int norders_slm;       // total procman_lcm_orders_t observed Since Last MARK
+  int norders_forme_slm; // total procman_lcm_orders_t for this deputy slm
+  int nstale_orders_slm; // total stale procman_lcm_orders_t for this deputy slm
 
-    GList *observed_sheriffs_slm; // names of observed sheriffs slm
-    char *last_sheriff_name;      // name of the most recently observed sheriff
+  GList *observed_sheriffs_slm; // names of observed sheriffs slm
+  char *last_sheriff_name;      // name of the most recently observed sheriff
 
-    int64_t deputy_start_time;
-    procman_lcm_discovery_t_subscription_t* discovery_subs;
+  int64_t deputy_start_time;
+  procman_lcm_discovery_t_subscription_t* discovery_subs;
 
-    procman_lcm_deputy_info_t_subscription_t* info2_subs;
-    procman_lcm_orders_t_subscription_t* orders2_subs;
+  procman_lcm_deputy_info_t_subscription_t* info2_subs;
+  procman_lcm_orders_t_subscription_t* orders2_subs;
 
-    pid_t deputy_pid;
-    sys_cpu_mem_t cpu_time[2];
-    float cpu_load;
+  pid_t deputy_pid;
+  sys_cpu_mem_t cpu_time[2];
+  float cpu_load;
 
-    int verbose;
-    int exiting;
+  int verbose;
+  int exiting;
 } procman_deputy_t;
 
 typedef struct _pmd_cmd_moreinfo {
-    procman_deputy_t *deputy;
-    // glib handles for IO watches
-    GIOChannel *stdout_ioc;
-    guint stdout_sid;
-    int32_t actual_runid;
-    int32_t sheriff_id;
-    int32_t should_be_stopped;
+  procman_deputy_t *deputy;
+  // glib handles for IO watches
+  GIOChannel *stdout_ioc;
+  guint stdout_sid;
+  int32_t actual_runid;
+  int32_t sheriff_id;
+  int32_t should_be_stopped;
 
-    proc_cpu_mem_t cpu_time[2];
-    float cpu_usage;
+  proc_cpu_mem_t cpu_time[2];
+  float cpu_usage;
 
-    char *group;
-    char *id;
-    int auto_respawn;
-    guint respawn_timeout_id;
-    int64_t last_start_time;
-    int respawn_backoff;
+  char *group;
+  char *id;
+  int auto_respawn;
+  guint respawn_timeout_id;
+  int64_t last_start_time;
+  int respawn_backoff;
 
-    int stop_signal;
-    float stop_time_allowed;
+  int stop_signal;
+  float stop_time_allowed;
 
-    int num_kills_sent;
-    int64_t first_kill_time;
-    int remove_requested;
+  int num_kills_sent;
+  int64_t first_kill_time;
+  int remove_requested;
 } pmd_cmd_moreinfo_t;
 
 // make this global so that the signal handler can access it
@@ -352,88 +352,84 @@ stop_cmd (procman_deputy_t *pmd, procman_cmd_t *cmd)
 static void
 check_for_dead_children (procman_deputy_t *pmd)
 {
-    procman_cmd_t *cmd = NULL;
-    procman_check_for_dead_children (pmd->pm, &cmd);
+  ProcmanCommandPtr cmd = procman_check_for_dead_children(pmd->pm);
 
-    while (cmd) {
-        int status;
-        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
+  while (cmd) {
+    int status;
+    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
 
-        // check the stdout pipes to see if there is anything from stdout /
-        // stderr.
-        struct pollfd pfd = { cmd->stdout_fd, POLLIN, 0 };
-        status = poll (&pfd, 1, 0);
-        if (pfd.revents & POLLIN) {
-            pipe_data_ready (NULL, G_IO_IN, cmd);
-        }
-
-        // did the child terminate with a signal?
-        if (WIFSIGNALED (cmd->exit_status)) {
-            int signum = WTERMSIG (cmd->exit_status);
-
-            printf_and_transmit (pmd, mi->sheriff_id,
-                    "%s\n",
-                    strsignal (signum), signum);
-            if (WCOREDUMP (cmd->exit_status)) {
-                printf_and_transmit (pmd, mi->sheriff_id, "Core dumped.\n");
-            }
-        }
-
-        // cleanup the glib hooks if necessary
-        if (mi->stdout_ioc) {
-            // detach from the glib event loop
-            g_io_channel_unref (mi->stdout_ioc);
-            g_source_remove (mi->stdout_sid);
-            mi->stdout_ioc = NULL;
-            mi->stdout_sid = 0;
-
-            procman_close_dead_pipes (pmd->pm, cmd);
-        }
-
-        // remove ?
-        if (mi->remove_requested) {
-            dbgt ("[%s] remove\n", cmd->Id().c_str());
-            // cleanup the private data structure used
-            pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
-            free(mi->group);
-            free(mi->id);
-            free(mi);
-            cmd->user = NULL;
-            procman_remove_cmd (pmd->pm, cmd);
-        } else {
-            maybe_schedule_respawn(pmd, cmd);
-        }
-
-        cmd = NULL;
-        procman_check_for_dead_children (pmd->pm, &cmd);
-        transmit_proc_info (pmd);
+    // check the stdout pipes to see if there is anything from stdout /
+    // stderr.
+    struct pollfd pfd = {
+      cmd->StdoutFd(),
+      POLLIN,
+      0
+    };
+    status = poll (&pfd, 1, 0);
+    if (pfd.revents & POLLIN) {
+      pipe_data_ready (NULL, G_IO_IN, cmd);
     }
+
+    // did the child terminate with a signal?
+    if (WIFSIGNALED (cmd->exit_status)) {
+      int signum = WTERMSIG (cmd->exit_status);
+
+      printf_and_transmit (pmd, mi->sheriff_id,
+          "%s\n",
+          strsignal (signum), signum);
+      if (WCOREDUMP (cmd->exit_status)) {
+        printf_and_transmit (pmd, mi->sheriff_id, "Core dumped.\n");
+      }
+    }
+
+    // cleanup the glib hooks if necessary
+    if (mi->stdout_ioc) {
+      // detach from the glib event loop
+      g_io_channel_unref (mi->stdout_ioc);
+      g_source_remove (mi->stdout_sid);
+      mi->stdout_ioc = NULL;
+      mi->stdout_sid = 0;
+
+      procman_close_dead_pipes (pmd->pm, cmd);
+    }
+
+    // remove ?
+    if (mi->remove_requested) {
+      dbgt ("[%s] remove\n", cmd->Id().c_str());
+      // cleanup the private data structure used
+      pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
+      free(mi->group);
+      free(mi->id);
+      free(mi);
+      cmd->user = NULL;
+      procman_remove_cmd (pmd->pm, cmd);
+    } else {
+      maybe_schedule_respawn(pmd, cmd);
+    }
+
+    cmd = procman_check_for_dead_children (pmd->pm);
+    transmit_proc_info (pmd);
+  }
 }
 
 static gboolean
 on_quit_timeout(procman_deputy_t* pmd)
 {
-    const GList *all_cmds = procman_get_cmds (pmd->pm);
-
-    GList *toremove = g_list_copy ((GList*) all_cmds);
-    for (GList *iter=toremove; iter; iter=iter->next) {
-        procman_cmd_t *cmd = (procman_cmd_t*)iter->data;
-
-        if (cmd->pid) {
-            procman_kill_cmd (pmd->pm, cmd, SIGKILL);
-        }
-        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
-        free(mi->group);
-        free(mi->id);
-        free(mi);
-        cmd->user = NULL;
-        procman_remove_cmd (pmd->pm, cmd);
+  for (ProcmanCommandPtr cmd : procman_get_cmds(pmd->pm)) {
+    if (cmd->pid) {
+      procman_kill_cmd (pmd->pm, cmd, SIGKILL);
     }
-    g_list_free(toremove);
+    pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
+    free(mi->group);
+    free(mi->id);
+    free(mi);
+    cmd->user = NULL;
+    procman_remove_cmd (pmd->pm, cmd);
+  }
 
-    dbgt ("stopping deputy main loop\n");
-    g_main_loop_quit (pmd->mainloop);
-    return FALSE;
+  dbgt ("stopping deputy main loop\n");
+  g_main_loop_quit (pmd->mainloop);
+  return FALSE;
 }
 
 static void
@@ -451,9 +447,7 @@ glib_handle_signal (int signal, procman_deputy_t *pmd) {
 
         // first, send everything a SIGINT to give them a chance to exit
         // cleanly.
-        const GList *all_cmds = procman_get_cmds (pmd->pm);
-        for (const GList *iter=all_cmds; iter; iter=iter->next) {
-            procman_cmd_t *cmd = (procman_cmd_t*)iter->data;
+        for (ProcmanCommandPtr cmd : procman_get_cmds(pmd->pm)) {
             if (cmd->pid) {
               pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
                 procman_kill_cmd (pmd->pm, cmd, mi->stop_signal);
@@ -472,9 +466,7 @@ glib_handle_signal (int signal, procman_deputy_t *pmd) {
     if(pmd->exiting) {
         // if we're exiting, and all child processes are dead, then exit.
         int all_dead = 1;
-        const GList *all_cmds = procman_get_cmds (pmd->pm);
-        for (const GList *iter=all_cmds; iter; iter=iter->next) {
-            procman_cmd_t *cmd = (procman_cmd_t*)iter->data;
+        for (ProcmanCommandPtr cmd : procman_get_cmds(pmd->pm)) {
             if (cmd->pid) {
                 all_dead = 0;
                 break;
@@ -496,7 +488,7 @@ transmit_proc_info (procman_deputy_t *s)
   // build a deputy info message
   memset (&msg, 0, sizeof (msg));
 
-  const GList *allcmds = procman_get_cmds (s->pm);
+  const std::vector<ProcmanCommandPtr>& allcmds = procman_get_cmds (s->pm);
 
   msg.utime = timestamp_now ();
   msg.host = s->hostname;
@@ -506,13 +498,12 @@ transmit_proc_info (procman_deputy_t *s)
   msg.swap_total_bytes = s->cpu_time[1].swaptotal;
   msg.swap_free_bytes = s->cpu_time[1].swapfree;
 
-  msg.ncmds = g_list_length((GList*) allcmds);
+  msg.ncmds = allcmds.size();
   msg.cmds =
     (procman_lcm_cmd_status_t *) calloc(msg.ncmds, sizeof(procman_lcm_cmd_status_t));
 
-  const GList *iter = allcmds;
   for (i=0; i<msg.ncmds; i++) {
-    procman_cmd_t *cmd = (procman_cmd_t*)iter->data;
+    procman_cmd_t *cmd = allcmds[i];
     pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
 
     msg.cmds[i].cmd.exec_str = (char*) cmd->ExecStr().c_str();
@@ -531,8 +522,6 @@ transmit_proc_info (procman_deputy_t *s)
     msg.cmds[i].cpu_usage = mi->cpu_usage;
     msg.cmds[i].mem_vsize_bytes = mi->cpu_time[1].vsize;
     msg.cmds[i].mem_rss_bytes = mi->cpu_time[1].rss;
-
-    iter = iter->next;
   }
 
   if (s->verbose) dbgt ("transmitting deputy info!\n");
@@ -545,8 +534,6 @@ transmit_proc_info (procman_deputy_t *s)
 static void
 update_cpu_times (procman_deputy_t *s)
 {
-    const GList *allcmds = procman_get_cmds (s->pm);
-    const GList *iter;
     int status;
 
     status = procinfo_read_sys_cpu_mem (&s->cpu_time[1]);
@@ -570,8 +557,7 @@ update_cpu_times (procman_deputy_t *s)
         s->cpu_load = (double)loaded_jiffies / elapsed_jiffies;
     }
 
-    for (iter = allcmds; iter; iter=iter->next) {
-        procman_cmd_t *cmd = (procman_cmd_t*)iter->data;
+    for (ProcmanCommandPtr cmd : procman_get_cmds (s->pm)) {
         pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
 
         if (cmd->pid) {
@@ -636,17 +622,15 @@ introspection_timeout (procman_deputy_t *s)
         perror("introspection_timeout - procinfo_read_proc_cpu_mem");
     }
 
-    const GList *allcmds = procman_get_cmds (s->pm);
-    int nrunning=0;
-    for (const GList *citer=allcmds; citer; citer=citer->next) {
-        procman_cmd_t *cmd = (procman_cmd_t*)citer->data;
+    int nrunning = 0;
+    for (ProcmanCommandPtr cmd : procman_get_cmds (s->pm)) {
         if (cmd->pid) nrunning++;
     }
 
     dbgt ("MARK - rss: %" PRId64 " kB vsz: %" PRId64
             " kB procs: %d (%d alive)\n",
             pinfo.rss / 1024, pinfo.vsize / 1024,
-            g_list_length ((GList*)procman_get_cmds (s->pm)),
+            (int) procman_get_cmds(s->pm).size(),
             nrunning
            );
 //    dbgt ("       orders: %d forme: %d (%d stale) sheriffs: %d\n",
@@ -679,16 +663,14 @@ procmd_orders_find_cmd (const procman_lcm_orders_t *a, int32_t sheriff_id)
 static procman_cmd_t *
 find_local_cmd (procman_deputy_t *s, int32_t sheriff_id)
 {
-    const GList *iter;
-    for (iter=procman_get_cmds (s->pm); iter; iter=iter->next) {
-        procman_cmd_t *cand = (procman_cmd_t*)iter->data;
-        pmd_cmd_moreinfo_t *cmi = (pmd_cmd_moreinfo_t*)cand->user;
+  for (ProcmanCommandPtr cmd : procman_get_cmds(s->pm)) {
+    pmd_cmd_moreinfo_t *cmi = (pmd_cmd_moreinfo_t*)cmd->user;
 
-        if (cmi->sheriff_id == sheriff_id) {
-            return cand;
-        }
+    if (cmi->sheriff_id == sheriff_id) {
+      return cmd;
     }
-    return NULL;
+  }
+  return NULL;
 }
 
 static void
@@ -887,10 +869,9 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
 
     // if there are any commands being managed that did not appear in the
     // orders, then stop and remove those commands
-    GList *toremove = NULL;
-    for (iter=procman_get_cmds (s->pm); iter; iter=iter->next) {
-        procman_cmd_t *p = (procman_cmd_t*)iter->data;
-        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)p->user;
+    std::vector<ProcmanCommandPtr> toremove;
+    for (ProcmanCommandPtr cmd : procman_get_cmds (s->pm)) {
+        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
         procman_lcm_cmd_desired_t *cmd_msg =
             procmd_orders_find_cmd (orders, mi->sheriff_id);
 
@@ -898,32 +879,30 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
             // push the orphaned command into a list first.  remove later, to
             // avoid corrupting the linked list (since this is a borrowed data
             // structure)
-            toremove = g_list_append (toremove, p);
+            toremove.push_back(cmd);
         }
     }
 
     // cull orphaned commands
-    for (iter=toremove; iter; iter=iter->next) {
-        procman_cmd_t *p = (procman_cmd_t*) iter->data;
-        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
+    for (ProcmanCommandPtr cmd : toremove) {
+        pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
 
-        if (p->pid) {
-            dbgt ("[%s] scheduling removal\n", p->Id().c_str());
+        if (cmd->pid) {
+            dbgt ("[%s] scheduling removal\n", cmd->Id().c_str());
             mi->remove_requested = 1;
-            stop_cmd (s, p);
+            stop_cmd (s, cmd);
         } else {
-            dbgt ("[%s] remove\n", p->Id().c_str());
+            dbgt ("[%s] remove\n", cmd->Id().c_str());
             // cleanup the private data structure used
             free (mi->group);
-        free (mi->id);
+            free (mi->id);
             free (mi);
-            p->user = NULL;
-            procman_remove_cmd (s->pm, p);
+            cmd->user = NULL;
+            procman_remove_cmd (s->pm, cmd);
         }
 
         action_taken = 1;
     }
-    g_list_free(toremove);
 
     if (action_taken)
         transmit_proc_info (s);

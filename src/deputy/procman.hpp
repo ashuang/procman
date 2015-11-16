@@ -30,9 +30,19 @@ struct ProcmanOptions {
 struct procman_cmd_t {
   procman_cmd_t();
 
+  ~procman_cmd_t();
+
   const std::string& ExecStr() const { return exec_str_; }
 
   const std::string& Id() const { return cmd_id_; }
+
+  int SheriffId() const { return sheriff_id; }
+
+  int Pid() const { return pid; }
+
+  int StdoutFd() const { return stdout_fd; }
+
+  int StdinFd() const { return stdin_fd; }
 
   int32_t sheriff_id;   // unique to the containing instance of procman_t
 
@@ -59,11 +69,13 @@ struct procman_cmd_t {
   void *user;  // use this for application-specific data
 };
 
+typedef procman_cmd_t* ProcmanCommandPtr;
+
 struct procman_t {
   procman_t();
 
   ProcmanOptions options;
-  GList *commands;
+  std::vector<ProcmanCommandPtr> commands_;
   StringStringMap variables_;
 };
 
@@ -77,16 +89,16 @@ void procman_destroy (procman_t *pm);
 // returns a doubly linked list, where each data element is a procman_cmd_t
 //
 // Do not modify this list, or it's contents!
-const GList* procman_get_cmds (procman_t *pm);
+const std::vector<ProcmanCommandPtr>& procman_get_cmds (procman_t *pm);
 
 /**
  * Removes all variables from the variable expansion table.
  */
 void procman_remove_all_variables(procman_t* pm);
 
-int procman_start_cmd (procman_t *pm, procman_cmd_t *cmd);
-int procman_stop_cmd (procman_t *pm, procman_cmd_t *p);
-int procman_kill_cmd (procman_t *pm, procman_cmd_t *cmd, int signum);
+int procman_start_cmd (procman_t *pm, ProcmanCommandPtr cmd);
+int procman_stop_cmd (procman_t *pm, ProcmanCommandPtr cmd);
+int procman_kill_cmd (procman_t *pm, ProcmanCommandPtr cmd, int signum);
 
 // convenience functions
 int procman_start_all_cmds (procman_t *pm);
@@ -98,26 +110,14 @@ int procman_stop_all_cmds (procman_t *pm);
  * The command is not started.  To start a command running, use
  * procman_start_cmd
  */
-procman_cmd_t* procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_id);
+ProcmanCommandPtr procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_id);
 
 /* Removes a command from management by procman.  The command must already be
  * stopped and reaped by procman_check_for_dead_children.  Otherwise, this
  * function will fail.  On success, the %cmd structure is destroyed and no
  * longer available for use.
- *
- * returns 0 on success, -1 on failure.
  */
-int procman_remove_cmd (procman_t *pm, procman_cmd_t *cmd);
-
-/* searches for a command.  returns a pointer to the corresponding
- * procman_cmd_t on success, NULL on failure
- */
-procman_cmd_t *procman_find_cmd (procman_t *pm, const char *cmd_str);
-
-/* searches for a command.  returns a pointer to the corresponding
- * procman_cmd_t on success, NULL on failure
- */
-procman_cmd_t *procman_find_cmd_by_id (procman_t *pm, int32_t sheriff_id);
+bool procman_remove_cmd (procman_t *pm, ProcmanCommandPtr cmd);
 
 /* checks to see if any processes spawned by procman_start_cmd have died
  *
@@ -131,24 +131,23 @@ procman_cmd_t *procman_find_cmd_by_id (procman_t *pm, int32_t sheriff_id);
  *
  * returns 0 on success, -1 on failure
  */
-int procman_check_for_dead_children (procman_t *pm,
-        procman_cmd_t **dead_child);
+ProcmanCommandPtr procman_check_for_dead_children (procman_t *pm);
 
-int procman_close_dead_pipes (procman_t *pm, procman_cmd_t *cmd);
+int procman_close_dead_pipes (procman_t *pm, ProcmanCommandPtr cmd);
 
 /* returns 0  TODO
  */
-CommandStatus procman_get_cmd_status (procman_t *pm, procman_cmd_t *cmd);
+CommandStatus procman_get_cmd_status (procman_t *pm, ProcmanCommandPtr cmd);
 
 /* Changes the command that will be executed for a procman_cmd_t
  * no effect until the command is started again (if it's currently running)
  */
-void procman_cmd_change_str (procman_cmd_t *cmd, const char *cmd_str);
+void procman_cmd_change_str (ProcmanCommandPtr cmd, const char *cmd_str);
 
 /**
  * Sets the command id.
  */
-void procman_cmd_set_id(procman_cmd_t* cmd, const char* cmd_id);
+void procman_cmd_set_id(ProcmanCommandPtr cmd, const char* cmd_id);
 
 #define PROCMAN_MAX_MESSAGE_AGE_USEC 60000000LL
 
