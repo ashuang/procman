@@ -113,7 +113,6 @@ struct DeputyCommand {
   GIOChannel *stdout_ioc;
   guint stdout_sid;
   int32_t actual_runid;
-  int32_t sheriff_id;
   int32_t should_be_stopped;
 
   proc_cpu_mem_t cpu_time[2];
@@ -230,43 +229,43 @@ pipe_data_ready (GIOChannel *source, GIOCondition condition,
             snprintf (buf, sizeof (buf), "procman [%s] read: %s (%d)\n",
                     cmd->ExecStr().c_str(), strerror (errno), errno);
             dbgt (buf);
-            transmit_str (g_pmd, mi->sheriff_id, buf);
+            transmit_str (g_pmd, cmd->SheriffId(), buf);
         } else if ( bytes_read == 0) {
             dbgt ("zero byte read\n");
         } else {
             buf[bytes_read] = '\0';
-            transmit_str (g_pmd, mi->sheriff_id, buf);
+            transmit_str (g_pmd, cmd->SheriffId(), buf);
         }
         anycondition = 1;
     }
     if (condition & G_IO_ERR) {
-        transmit_str (g_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, cmd->SheriffId(),
                 "procman deputy: detected G_IO_ERR.\n");
         dbgt ("G_IO_ERR from [%s]\n", cmd->Id().c_str());
         anycondition = 1;
     }
     if (condition & G_IO_HUP) {
-        transmit_str (g_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, cmd->SheriffId(),
                 "procman deputy: detected G_IO_HUP.  end of output\n");
         dbgt ("G_IO_HUP from [%s]\n", cmd->Id().c_str());
         result = FALSE;
         anycondition = 1;
     }
     if (condition & G_IO_NVAL) {
-        transmit_str (g_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, cmd->SheriffId(),
                 "procman deputy: detected G_IO_NVAL.  end of output\n");
         dbgt ("G_IO_NVAL from [%s]\n", cmd->Id().c_str());
         result = FALSE;
         anycondition = 1;
     }
     if (condition & G_IO_PRI) {
-        transmit_str (g_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, cmd->SheriffId(),
                 "procman deputy: unexpected G_IO_PRI... wtf?\n");
         dbgt ("G_IO_PRI from [%s]\n", cmd->Id().c_str());
         anycondition = 1;
     }
     if (condition & G_IO_OUT) {
-        transmit_str (g_pmd, mi->sheriff_id,
+        transmit_str (g_pmd, cmd->SheriffId(),
                 "procman deputy: unexpected G_IO_OUT... wtf?\n");
         dbgt ("G_IO_OUT from [%s]\n", cmd->Id().c_str());
         anycondition = 1;
@@ -317,7 +316,7 @@ start_cmd (ProcmanDeputy *pmd, DeputyCommand* mi, int desired_runid)
         printf_and_transmit (pmd, 0, "[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
         dbgt ("[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
         maybe_schedule_respawn(pmd, mi);
-        printf_and_transmit (pmd, mi->sheriff_id,
+        printf_and_transmit (pmd, cmd->SheriffId(),
                 "ERROR!  [%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
         return -1;
     }
@@ -366,7 +365,7 @@ stop_cmd (ProcmanDeputy *pmd, DeputyCommand* mi)
     }
 
     if (0 != status) {
-        printf_and_transmit (pmd, mi->sheriff_id,
+        printf_and_transmit (pmd, cmd->SheriffId(),
                 "kill: %s\n", strerror (-status));
     }
     return status;
@@ -397,11 +396,11 @@ check_for_dead_children (ProcmanDeputy *pmd)
     if (WIFSIGNALED (cmd->exit_status)) {
       int signum = WTERMSIG (cmd->exit_status);
 
-      printf_and_transmit (pmd, mi->sheriff_id,
+      printf_and_transmit (pmd, cmd->SheriffId(),
           "%s\n",
           strsignal (signum), signum);
       if (WCOREDUMP (cmd->exit_status)) {
-        printf_and_transmit (pmd, mi->sheriff_id, "Core dumped.\n");
+        printf_and_transmit (pmd, cmd->SheriffId(), "Core dumped.\n");
       }
     }
 
@@ -531,7 +530,7 @@ transmit_proc_info (ProcmanDeputy *s)
     msg.cmds[cmd_index].actual_runid = mi->actual_runid;
     msg.cmds[cmd_index].pid = cmd->pid;
     msg.cmds[cmd_index].exit_code = cmd->exit_status;
-    msg.cmds[cmd_index].sheriff_id = mi->sheriff_id;
+    msg.cmds[cmd_index].sheriff_id = cmd->SheriffId();
     msg.cmds[cmd_index].cpu_usage = mi->cpu_usage;
     msg.cmds[cmd_index].mem_vsize_bytes = mi->cpu_time[1].vsize;
     msg.cmds[cmd_index].mem_rss_bytes = mi->cpu_time[1].rss;
@@ -763,7 +762,6 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
             // allocate a private data structure for glib info
             mi = new DeputyCommand();
             mi->deputy = pmd;
-            mi->sheriff_id = cmd_msg->sheriff_id;
             mi->group_ = cmd_msg->cmd.group;
             mi->auto_respawn = cmd_msg->cmd.auto_respawn;
             mi->stop_signal = cmd_msg->cmd.stop_signal;
@@ -848,7 +846,7 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
     for (auto& item : pmd->commands_) {
       DeputyCommand* mi = item.second;
       ProcmanCommandPtr cmd = item.first;
-        const cmd_desired_t *cmd_msg = procmd_orders_find_cmd (orders, mi->sheriff_id);
+        const cmd_desired_t *cmd_msg = procmd_orders_find_cmd (orders, cmd->SheriffId());
 
         if (! cmd_msg) {
           // push the orphaned command into a list first.  remove later, to
