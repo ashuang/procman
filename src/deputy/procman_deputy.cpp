@@ -69,6 +69,8 @@ namespace procman {
 #define DEFAULT_STOP_SIGNAL 2
 #define DEFAULT_STOP_TIME_ALLOWED 7
 
+#define PROCMAN_MAX_MESSAGE_AGE_USEC 60000000LL
+
 #define dbg(args...) fprintf(stderr, args)
 //#undef dbg
 //#define dbg(args...)
@@ -224,7 +226,7 @@ pipe_data_ready (GIOChannel *source, GIOCondition condition,
 
     if (condition & G_IO_IN) {
         char buf[1024];
-        int bytes_read = read (cmd->stdout_fd, buf, sizeof (buf)-1);
+        int bytes_read = read (cmd->StdoutFd(), buf, sizeof (buf)-1);
         if (bytes_read < 0) {
             snprintf (buf, sizeof (buf), "procman [%s] read: %s (%d)\n",
                     cmd->ExecStr().c_str(), strerror (errno), errno);
@@ -327,9 +329,9 @@ start_cmd (ProcmanDeputy *pmd, DeputyCommand* mi, int desired_runid)
                 cmd->Id().c_str(), cmd->ExecStr().c_str());
     }
 
-    mi->stdout_ioc = g_io_channel_unix_new (cmd->stdout_fd);
+    mi->stdout_ioc = g_io_channel_unix_new (cmd->StdoutFd());
     g_io_channel_set_encoding (mi->stdout_ioc, NULL, NULL);
-    fcntl (cmd->stdout_fd, F_SETFL, O_NONBLOCK);
+    fcntl (cmd->StdoutFd(), F_SETFL, O_NONBLOCK);
     mi->stdout_sid = g_io_add_watch (mi->stdout_ioc,
             G_IO_IN, (GIOFunc)pipe_data_ready, mi);
 
@@ -344,7 +346,7 @@ stop_cmd (ProcmanDeputy *pmd, DeputyCommand* mi)
 {
     ProcmanCommandPtr cmd = mi->cmd;
 
-    if (!cmd->pid) return 0;
+    if (!cmd->Pid()) return 0;
 
     mi->should_be_stopped = 1;
 
@@ -393,13 +395,14 @@ check_for_dead_children (ProcmanDeputy *pmd)
     }
 
     // did the child terminate with a signal?
-    if (WIFSIGNALED (cmd->exit_status)) {
-      int signum = WTERMSIG (cmd->exit_status);
+    int exit_status = cmd->ExitStatus();
+    if (WIFSIGNALED (exit_status)) {
+      int signum = WTERMSIG (exit_status);
 
       printf_and_transmit (pmd, cmd->SheriffId(),
           "%s\n",
           strsignal (signum), signum);
-      if (WCOREDUMP (cmd->exit_status)) {
+      if (WCOREDUMP (exit_status)) {
         printf_and_transmit (pmd, cmd->SheriffId(), "Core dumped.\n");
       }
     }
@@ -482,10 +485,10 @@ glib_handle_signal (int signal, ProcmanDeputy *pmd) {
 
     if(pmd->exiting) {
         // if we're exiting, and all child processes are dead, then exit.
-        int all_dead = 1;
+        bool all_dead = true;
         for (ProcmanCommandPtr cmd : pmd->pm->GetCommands()) {
-            if (cmd->pid) {
-                all_dead = 0;
+            if (cmd->Pid()) {
+                all_dead = false;
                 break;
             }
         }
@@ -528,8 +531,8 @@ transmit_proc_info (ProcmanDeputy *s)
     msg.cmds[cmd_index].cmd.option_names.clear();
     msg.cmds[cmd_index].cmd.option_values.clear();
     msg.cmds[cmd_index].actual_runid = mi->actual_runid;
-    msg.cmds[cmd_index].pid = cmd->pid;
-    msg.cmds[cmd_index].exit_code = cmd->exit_status;
+    msg.cmds[cmd_index].pid = cmd->Pid();
+    msg.cmds[cmd_index].exit_code = cmd->ExitStatus();
     msg.cmds[cmd_index].sheriff_id = cmd->SheriffId();
     msg.cmds[cmd_index].cpu_usage = mi->cpu_usage;
     msg.cmds[cmd_index].mem_vsize_bytes = mi->cpu_time[1].vsize;
@@ -571,8 +574,8 @@ update_cpu_times (ProcmanDeputy *s)
     ProcmanCommandPtr cmd = item.first;
     DeputyCommand* mi = item.second;
 
-        if (cmd->pid) {
-            status = procinfo_read_proc_cpu_mem (cmd->pid, &mi->cpu_time[1]);
+        if (cmd->Pid()) {
+            status = procinfo_read_proc_cpu_mem (cmd->Pid(), &mi->cpu_time[1]);
             if (0 != status) {
                 mi->cpu_usage = 0;
                 mi->cpu_time[1].vsize = 0;
@@ -634,7 +637,9 @@ introspection_timeout (ProcmanDeputy *pmd)
 
     int nrunning = 0;
     for (ProcmanCommandPtr cmd : pmd->pm->GetCommands()) {
-        if (cmd->pid) nrunning++;
+        if (cmd->Pid()) {
+          nrunning++;
+        }
     }
 
     dbgt ("MARK - rss: %" PRId64 " kB vsz: %" PRId64
@@ -860,7 +865,7 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
     for (DeputyCommand* mi : toremove) {
       ProcmanCommandPtr cmd = mi->cmd;
 
-        if (cmd->pid) {
+        if (cmd->Pid()) {
             dbgt ("[%s] scheduling removal\n", cmd->Id().c_str());
             mi->remove_requested = 1;
             stop_cmd (pmd, mi);

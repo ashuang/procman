@@ -20,49 +20,76 @@ enum CommandStatus {
 struct ProcmanOptions {
   static ProcmanOptions Default(int argc, char** argv);
 
-  std::string bin_path;  // commands that are not specified as an absolute
-                          // path have this prepended to their path
+  // commands that are not specified as an absolute
+  // path have this prepended to their path
+  std::string bin_path;
+
   bool verbose;
 };
 
-struct ProcmanCommand {
-  ProcmanCommand();
+class ProcmanCommand {
+  public:
+    ~ProcmanCommand();
 
-  ~ProcmanCommand();
+    const std::string& ExecStr() const { return exec_str_; }
 
-  const std::string& ExecStr() const { return exec_str_; }
+    const std::string& Id() const { return cmd_id_; }
 
-  const std::string& Id() const { return cmd_id_; }
+    int SheriffId() const { return sheriff_id_; }
 
-  int SheriffId() const { return sheriff_id_; }
+    int Pid() const { return pid_; }
 
-  int Pid() const { return pid; }
+    int StdoutFd() const { return stdout_fd_; }
 
-  int StdoutFd() const { return stdout_fd; }
+    int StdinFd() const { return stdin_fd_; }
 
-  int StdinFd() const { return stdin_fd; }
+    int ExitStatus() const { return exit_status_; }
 
-  int32_t sheriff_id_;   // unique to the containing instance of Procman
+  private:
+    ProcmanCommand(const std::string& exec_str,
+        const std::string& cmd_id, int32_t sheriff_id);
 
-  std::string exec_str_; // the command to execute.  Do not modify directly
+    void SetPid(int pid) { pid_ = pid; }
 
-  std::string cmd_id_;  // a user-assigned name for the command.  Do not modify directly
+    void SetStdinFd(int fd) { stdin_fd_ = fd; }
 
-  int pid;      // pid of process when running.  0 otherwise
+    void SetStdoutFd(int fd) { stdout_fd_ = fd; }
 
-  int stdin_fd;  // when the process is running, writing to this pipe
-  // writes to stdin of the process
-  int stdout_fd; // and reading from this pipe reads from stdout of the proc
+    void SetExitStatus(int status) { exit_status_ = status; }
 
-  int exit_status;
+    void PrepareArgsAndEnvironment(const StringStringMap& variables);
 
-  int envc;    //number of environment variables
-  char ***envp; //environment variables to set
+    friend class Procman;
 
-  int argc;    //number of arguments, shouldn't be needed
-  char **argv; // don't touch this
+    // a user-assigned name for the command.
+    std::string cmd_id_;
 
-  std::vector<int> descendants_to_kill; // Used internally when killing a process.
+    // the command to execute.
+    std::string exec_str_;
+
+    // unique to the containing instance of Procman
+    int32_t sheriff_id_;
+
+    // pid of process when running.  0 otherwise
+    int pid_;
+
+    // when the process is running, writing to this pipe
+    // writes to stdin of the process
+    int stdin_fd_;
+
+    // and reading from this pipe reads from stdout of the proc
+    int stdout_fd_;
+
+    int exit_status_;
+
+    // number of arguments
+    int argc_;
+    char **argv_;
+
+    // environment variables to set
+    StringStringMap environment_;
+
+    std::vector<int> descendants_to_kill_; // Used internally when killing a process.
 };
 
 typedef std::shared_ptr<ProcmanCommand> ProcmanCommandPtr;
@@ -137,8 +164,6 @@ class Procman {
     std::vector<ProcmanCommandPtr> commands_;
     StringStringMap variables_;
 };
-
-#define PROCMAN_MAX_MESSAGE_AGE_USEC 60000000LL
 
 }  // namespace procman
 
