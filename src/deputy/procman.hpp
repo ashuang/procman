@@ -65,8 +65,6 @@ struct procman_cmd_t {
   char **argv; // don't touch this
 
   std::vector<int> descendants_to_kill; // Used internally when killing a process.
-
-  void *user;  // use this for application-specific data
 };
 
 typedef procman_cmd_t* ProcmanCommandPtr;
