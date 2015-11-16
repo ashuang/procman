@@ -108,7 +108,7 @@ int procman_stop_all_cmds (procman_t *pm);
  * The command is not started.  To start a command running, use
  * procman_start_cmd
  */
-ProcmanCommandPtr procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_id);
+ProcmanCommandPtr procman_add_cmd (procman_t *pm, const std::string& exec_str, const std::string& cmd_id);
 
 /* Removes a command from management by procman.  The command must already be
  * stopped and reaped by procman_check_for_dead_children.  Otherwise, this
@@ -140,12 +140,12 @@ CommandStatus procman_get_cmd_status (procman_t *pm, ProcmanCommandPtr cmd);
 /* Changes the command that will be executed for a procman_cmd_t
  * no effect until the command is started again (if it's currently running)
  */
-void procman_cmd_change_str (ProcmanCommandPtr cmd, const char *cmd_str);
+void procman_cmd_change_str (ProcmanCommandPtr cmd, const std::string& exec_str);
 
 /**
  * Sets the command id.
  */
-void procman_cmd_set_id(ProcmanCommandPtr cmd, const char* cmd_id);
+void procman_cmd_set_id(ProcmanCommandPtr cmd, const std::string& cmd_id);
 
 #define PROCMAN_MAX_MESSAGE_AGE_USEC 60000000LL
 

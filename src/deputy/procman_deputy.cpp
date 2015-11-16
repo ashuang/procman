@@ -37,18 +37,25 @@
 
 #include <glib.h>
 
-#include <lcm/lcm.h>
+#include <lcm/lcm-cpp.hpp>
 
-#include <lcmtypes/procman_lcm_output_t.h>
-#include <lcmtypes/procman_lcm_discovery_t.h>
+#include <lcmtypes/procman_lcm/output_t.hpp>
+#include <lcmtypes/procman_lcm/discovery_t.hpp>
 
-#include <lcmtypes/procman_lcm_deputy_info_t.h>
-#include <lcmtypes/procman_lcm_orders_t.h>
+#include <lcmtypes/procman_lcm/deputy_info_t.hpp>
+#include <lcmtypes/procman_lcm/orders_t.hpp>
 
 #include "procman.hpp"
 #include "procinfo.hpp"
 #include "signal_pipe.hpp"
 #include "lcm_util.hpp"
+
+using procman_lcm::cmd_desired_t;
+using procman_lcm::deputy_info_t;
+using procman_lcm::output_t;
+using procman_lcm::discovery_t;
+using procman_lcm::deputy_info_t;
+using procman_lcm::orders_t;
 
 namespace procman {
 
@@ -112,8 +119,7 @@ struct DeputyCommand {
   proc_cpu_mem_t cpu_time[2];
   float cpu_usage;
 
-  char *group;
-  char *id;
+  std::string group_;
   int auto_respawn;
   guint respawn_timeout_id;
   int64_t last_start_time;
@@ -128,11 +134,18 @@ struct DeputyCommand {
 };
 
 struct ProcmanDeputy {
+  void OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::string& channel,
+      const orders_t* orders);
+  void DiscoveryReceived(const lcm::ReceiveBuffer* rbuf,
+      const std::string& channel, const discovery_t* msg);
+  void InfoReceived(const lcm::ReceiveBuffer* rbuf,
+      const std::string& channel, const deputy_info_t* msg);
+
   procman_t *pm;
 
-  lcm_t *lcm;
+  lcm::LCM *lcm_;
 
-  char hostname[1024];
+  std::string hostname;
 
   GMainLoop * mainloop;
 
@@ -141,13 +154,12 @@ struct ProcmanDeputy {
   int nstale_orders_slm; // total stale procman_lcm_orders_t for this deputy slm
 
   std::set<std::string> observed_sheriffs_slm; // names of observed sheriffs slm
-  char *last_sheriff_name;      // name of the most recently observed sheriff
 
   int64_t deputy_start_time;
-  procman_lcm_discovery_t_subscription_t* discovery_subs;
+  lcm::Subscription* discovery_subs_;
 
-  procman_lcm_deputy_info_t_subscription_t* info2_subs;
-  procman_lcm_orders_t_subscription_t* orders2_subs;
+  lcm::Subscription* info2_subs_;
+  lcm::Subscription* orders2_subs_;
 
   pid_t deputy_pid;
   sys_cpu_mem_t cpu_time[2];
@@ -171,12 +183,12 @@ on_scheduled_respawn(DeputyCommand* mi);
 static void
 transmit_str (ProcmanDeputy *pmd, int sheriff_id, const char * str)
 {
-    procman_lcm_output_t msg;
-    msg.deputy_name = pmd->hostname;
-    msg.sheriff_id = sheriff_id;
-    msg.text = (char*) str;
-    msg.utime = timestamp_now ();
-    procman_lcm_output_t_publish (pmd->lcm, "PM_OUTPUT", &msg);
+  output_t msg;
+  msg.deputy_name = pmd->hostname;
+  msg.sheriff_id = sheriff_id;
+  msg.text = str;
+  msg.utime = timestamp_now ();
+  pmd->lcm_->publish("PM_OUTPUT", &msg);
 }
 
 static void
@@ -191,12 +203,12 @@ printf_and_transmit (ProcmanDeputy *pmd, int sheriff_id, const char *fmt, ...) {
         fputs (buf, stderr);
 
     if (len) {
-        procman_lcm_output_t msg;
+        output_t msg;
         msg.deputy_name = pmd->hostname;
         msg.sheriff_id = sheriff_id;
         msg.text = buf;
         msg.utime = timestamp_now ();
-        procman_lcm_output_t_publish (pmd->lcm, "PM_OUTPUT", &msg);
+        pmd->lcm_->publish("PM_OUTPUT", &msg);
     } else {
         dbgt ("uh oh.  printf_and_transmit printed zero bytes\n");
     }
@@ -408,8 +420,6 @@ check_for_dead_children (ProcmanDeputy *pmd)
     if (mi->remove_requested) {
       dbgt ("[%s] remove\n", cmd->Id().c_str());
       // cleanup the private data structure used
-      free(mi->group);
-      free(mi->id);
       delete mi;
       procman_remove_cmd (pmd->pm, cmd);
     } else {
@@ -430,8 +440,6 @@ on_quit_timeout(ProcmanDeputy* pmd)
     if (cmd->Pid()) {
       procman_kill_cmd (pmd->pm, cmd, SIGKILL);
     }
-    free(mi->group);
-    free(mi->id);
     delete mi;
     procman_remove_cmd (pmd->pm, cmd);
   }
@@ -493,11 +501,8 @@ static void
 transmit_proc_info (ProcmanDeputy *s)
 {
   int i;
-  procman_lcm_deputy_info_t msg;
-
   // build a deputy info message
-  memset (&msg, 0, sizeof (msg));
-
+  deputy_info_t msg;
   msg.utime = timestamp_now ();
   msg.host = s->hostname;
   msg.cpu_load = s->cpu_load;
@@ -507,23 +512,22 @@ transmit_proc_info (ProcmanDeputy *s)
   msg.swap_free_bytes = s->cpu_time[1].swapfree;
 
   msg.ncmds = s->commands_.size();
-  msg.cmds =
-    (procman_lcm_cmd_status_t *) calloc(msg.ncmds, sizeof(procman_lcm_cmd_status_t));
+  msg.cmds.resize(msg.ncmds);
 
   int cmd_index = 0;
   for (auto& item : s->commands_) {
     ProcmanCommandPtr cmd = item.first;
     DeputyCommand* mi = item.second;
 
-    msg.cmds[cmd_index].cmd.exec_str = (char*) cmd->ExecStr().c_str();
-    msg.cmds[cmd_index].cmd.command_id = mi->id;
-    msg.cmds[cmd_index].cmd.group = mi->group;
+    msg.cmds[cmd_index].cmd.exec_str = cmd->ExecStr();
+    msg.cmds[cmd_index].cmd.command_id = cmd->Id();
+    msg.cmds[cmd_index].cmd.group = mi->group_;
     msg.cmds[cmd_index].cmd.auto_respawn = mi->auto_respawn;
     msg.cmds[cmd_index].cmd.stop_signal = mi->stop_signal;
     msg.cmds[cmd_index].cmd.stop_time_allowed = mi->stop_time_allowed;
     msg.cmds[cmd_index].cmd.num_options = 0;
-    msg.cmds[cmd_index].cmd.option_names = NULL;
-    msg.cmds[cmd_index].cmd.option_values = NULL;
+    msg.cmds[cmd_index].cmd.option_names.clear();
+    msg.cmds[cmd_index].cmd.option_values.clear();
     msg.cmds[cmd_index].actual_runid = mi->actual_runid;
     msg.cmds[cmd_index].pid = cmd->pid;
     msg.cmds[cmd_index].exit_code = cmd->exit_status;
@@ -535,10 +539,7 @@ transmit_proc_info (ProcmanDeputy *s)
   }
 
   if (s->verbose) dbgt ("transmitting deputy info!\n");
-  procman_lcm_deputy_info_t_publish (s->lcm, "PM_INFO", &msg);
-
-  // release memory
-  free (msg.cmds);
+  s->lcm_->publish("PM_INFO", &msg);
 }
 
 static void
@@ -656,14 +657,16 @@ introspection_timeout (ProcmanDeputy *s)
     return TRUE;
 }
 
-static procman_lcm_cmd_desired_t *
-procmd_orders_find_cmd (const procman_lcm_orders_t *a, int32_t sheriff_id)
+static const cmd_desired_t *
+procmd_orders_find_cmd (const orders_t* orders, int32_t sheriff_id)
 {
-    int i;
-    for (i=0; i<a->ncmds; i++) {
-        if (sheriff_id == a->cmds[i].sheriff_id) return &a->cmds[i];
+  int i;
+  for (i=0; i<orders->ncmds; i++) {
+    if (sheriff_id == orders->cmds[i].sheriff_id) {
+      return &orders->cmds[i];
     }
-    return NULL;
+  }
+  return nullptr;
 }
 
 static DeputyCommand*
@@ -680,13 +683,6 @@ find_local_cmd (ProcmanDeputy *s, int32_t sheriff_id)
 }
 
 static void
-_set_command_group (DeputyCommand* mi, const char *group)
-{
-    free (mi->group);
-    mi->group = strdup (group);
-}
-
-static void
 _set_command_stop_signal (DeputyCommand* mi, int stop_signal)
 {
     mi->stop_signal = stop_signal;
@@ -700,14 +696,7 @@ _set_command_stop_time_allowed (DeputyCommand* mi, float stop_time_allowed)
 
 
 static void
-_set_command_id (DeputyCommand* mi, const char *id)
-{
-    free (mi->id);
-    mi->id = strdup (id);
-}
-
-static void
-_handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
+_handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
 {
     const GList *iter = NULL;
     pmd->norders_slm ++;
@@ -718,9 +707,9 @@ _handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
     }
 
     // ignore orders for other deputies
-    if (strcmp (orders->host, pmd->hostname)) {
+    if (orders->host != pmd->hostname) {
         if (pmd->verbose)
-            dbgt ("ignoring orders for other host %s\n", orders->host);
+            dbgt ("ignoring orders for other host %s\n", orders->host.c_str());
         return;
     }
     pmd->norders_forme_slm++;
@@ -729,7 +718,7 @@ _handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
     int64_t now = timestamp_now ();
     if (now - orders->utime > PROCMAN_MAX_MESSAGE_AGE_USEC) {
         for (int i=0; i<orders->ncmds; i++) {
-               procman_lcm_cmd_desired_t *cmd_msg = &orders->cmds[i];
+               const cmd_desired_t *cmd_msg = &orders->cmds[i];
                printf_and_transmit (pmd, cmd_msg->sheriff_id,
                    "ignoring stale orders (utime %d seconds ago). You may want to check the system clocks!\n",
                    (int) ((now - orders->utime) / 1000000));
@@ -740,15 +729,6 @@ _handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
 
     // check if we've seen this sheriff since the last MARK.
     pmd->observed_sheriffs_slm.insert(orders->sheriff_name);
-    if (pmd->last_sheriff_name &&
-            strcmp (orders->sheriff_name, pmd->last_sheriff_name)) {
-        free (pmd->last_sheriff_name);
-        pmd->last_sheriff_name = NULL;
-    }
-
-    if (!pmd->last_sheriff_name) {
-        pmd->last_sheriff_name = strdup (orders->sheriff_name);
-    }
 
     // update variables
     procman_remove_all_variables(pmd->pm);
@@ -762,12 +742,11 @@ _handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
     if (pmd->verbose)
         dbgt ("orders for me received with %d commands\n", orders->ncmds);
     for (i=0; i<orders->ncmds; i++) {
-
-        procman_lcm_cmd_desired_t *cmd_msg = &orders->cmds[i];
+        const cmd_desired_t* cmd_msg = &orders->cmds[i];
 
         if (pmd->verbose)
             dbgt ("order %d: %s (%d, %d)\n",
-                    i, cmd_msg->cmd.exec_str,
+                    i, cmd_msg->cmd.exec_str.c_str(),
                     cmd_msg->desired_runid, cmd_msg->force_quit);
 
         // do we already have this command somewhere?
@@ -778,15 +757,14 @@ _handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
           cmd = mi->cmd;
         } else {
             // if not, then create it.
-            if (pmd->verbose) dbgt ("adding new process (%s)\n", cmd_msg->cmd.exec_str);
+            if (pmd->verbose) dbgt ("adding new process (%s)\n", cmd_msg->cmd.exec_str.c_str());
             cmd = procman_add_cmd (pmd->pm, cmd_msg->cmd.exec_str, cmd_msg->cmd.command_id);
 
             // allocate a private data structure for glib info
             mi = new DeputyCommand();
             mi->deputy = pmd;
             mi->sheriff_id = cmd_msg->sheriff_id;
-            mi->group = strdup (cmd_msg->cmd.group);
-            mi->id = strdup (cmd_msg->cmd.command_id);
+            mi->group_ = cmd_msg->cmd.group;
             mi->auto_respawn = cmd_msg->cmd.auto_respawn;
             mi->stop_signal = cmd_msg->cmd.stop_signal;
             mi->stop_time_allowed = cmd_msg->cmd.stop_time_allowed;
@@ -803,33 +781,34 @@ _handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
 
         // rename a command?  does not kill a running command, so effect does
         // not apply until command is restarted.
-        if (strcmp (cmd->ExecStr().c_str(), cmd_msg->cmd.exec_str)) {
-            dbgt ("[%s] exec str -> [%s]\n", cmd->Id().c_str(), cmd_msg->cmd.exec_str);
+        if (cmd->ExecStr() != cmd_msg->cmd.exec_str) {
+            dbgt ("[%s] exec str -> [%s]\n", cmd->Id().c_str(),
+                cmd_msg->cmd.exec_str.c_str());
             procman_cmd_change_str (cmd, cmd_msg->cmd.exec_str);
 
             action_taken = 1;
         }
 
         // change a command's id?
-        if (strcmp (mi->id, cmd_msg->cmd.command_id)) {
-            dbgt ("[%s] rename -> [%s]\n", mi->id,
-                    cmd_msg->cmd.command_id);
-            _set_command_id (mi, cmd_msg->cmd.command_id);
+        if (cmd_msg->cmd.command_id != cmd->Id()) {
+            dbgt ("[%s] rename -> [%s]\n", cmd->Id().c_str(),
+                    cmd_msg->cmd.command_id.c_str());
             procman_cmd_set_id(cmd, cmd_msg->cmd.command_id);
             action_taken = 1;
         }
 
         // has auto-respawn changed?
         if (cmd_msg->cmd.auto_respawn != mi->auto_respawn) {
-            dbgt ("[%s] auto-respawn -> %d\n", cmd->Id().c_str(), cmd_msg->cmd.auto_respawn);
+            dbgt ("[%s] auto-respawn -> %d\n", cmd->Id().c_str(),
+                cmd_msg->cmd.auto_respawn);
             mi->auto_respawn = cmd_msg->cmd.auto_respawn;
         }
 
         // change the group of a command?
-        if (strcmp (mi->group, cmd_msg->cmd.group)) {
+        if (cmd_msg->cmd.group != mi->group_) {
             dbgt ("[%s] group -> [%s]\n", cmd->Id().c_str(),
-                    cmd_msg->cmd.group);
-            _set_command_group (mi, cmd_msg->cmd.group);
+                    cmd_msg->cmd.group.c_str());
+            mi->group_ = cmd_msg->cmd.group;
             action_taken = 1;
         }
 
@@ -869,14 +848,13 @@ _handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
     for (auto& item : pmd->commands_) {
       DeputyCommand* mi = item.second;
       ProcmanCommandPtr cmd = item.first;
-        procman_lcm_cmd_desired_t *cmd_msg =
-            procmd_orders_find_cmd (orders, mi->sheriff_id);
+        const cmd_desired_t *cmd_msg = procmd_orders_find_cmd (orders, mi->sheriff_id);
 
         if (! cmd_msg) {
-            // push the orphaned command into a list first.  remove later, to
-            // avoid corrupting the linked list (since this is a borrowed data
-            // structure)
-            toremove.push_back(mi);
+          // push the orphaned command into a list first.  remove later, to
+          // avoid corrupting the linked list (since this is a borrowed data
+          // structure)
+          toremove.push_back(mi);
         }
     }
 
@@ -891,9 +869,7 @@ _handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
         } else {
             dbgt ("[%s] remove\n", cmd->Id().c_str());
             // cleanup the private data structure used
-            free (mi->group);
-            free (mi->id);
-            free (mi);
+            delete mi;
             procman_remove_cmd (pmd->pm, cmd);
         }
 
@@ -904,54 +880,45 @@ _handle_orders2(ProcmanDeputy* pmd, const procman_lcm_orders_t* orders)
         transmit_proc_info (pmd);
 }
 
-static void
-procman_deputy_order2_received (const lcm_recv_buf_t *rbuf, const char *channel,
-        const procman_lcm_orders_t *orders, void *user_data)
-{
-    ProcmanDeputy *deputy = (ProcmanDeputy*) user_data;
-    _handle_orders2(deputy, orders);
+void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::string& channel,
+    const orders_t* orders) {
+  _handle_orders2(this, orders);
 }
 
-static void
-procman_deputy_discovery_received(const lcm_recv_buf_t* rbuf, const char* channel,
-        const procman_lcm_discovery_t* msg, void* user_data)
-{
-    ProcmanDeputy *pmd = (ProcmanDeputy*)user_data;
-
+void
+ProcmanDeputy::DiscoveryReceived(const lcm::ReceiveBuffer* rbuf,
+    const std::string& channel, const discovery_t* msg) {
     int64_t now = timestamp_now();
-    if(now < pmd->deputy_start_time + DISCOVERY_TIME_MS * 1000) {
+    if(now < deputy_start_time + DISCOVERY_TIME_MS * 1000) {
       // received a discovery message while still in discovery mode.  Check to
       // see if it's from a conflicting deputy.
-      if(!strcmp(msg->host, pmd->hostname) && msg->nonce != pmd->deputy_pid) {
+      if(msg->host == hostname && msg->nonce != deputy_pid) {
         dbgt("ERROR.  Detected another deputy named [%s].  Aborting to avoid conflicts.\n",
-            msg->host);
+            msg->host.c_str());
         exit(1);
       }
     } else {
       // received a discovery message while not in discovery mode.  Respond by
       // transmitting deputy info.
-      transmit_proc_info(pmd);
+      transmit_proc_info(this);
     }
 }
 
-static void
-procman_deputy_info2_received(const lcm_recv_buf_t *rbuf, const char *channel,
-        const procman_lcm_deputy_info_t *msg, void *user_data)
-{
-    ProcmanDeputy *pmd = (ProcmanDeputy*) user_data;
-
-    int64_t now = timestamp_now();
-    if(now < pmd->deputy_start_time + DISCOVERY_TIME_MS * 1000) {
-      // A different deputy has reported while we're still in discovery mode.
-      // Check to see if the deputy names are in conflict.
-      if(!strcmp(msg->host, pmd->hostname)) {
-        dbgt("ERROR.  Detected another deputy named [%s].  Aborting to avoid conflicts.\n",
-            msg->host);
-        exit(2);
-      }
-    } else {
-      dbgt("WARNING:  Still processing info messages while not in discovery mode??\n");
+void
+ProcmanDeputy::InfoReceived(const lcm::ReceiveBuffer* rbuf,
+    const std::string& channel, const deputy_info_t* msg) {
+  int64_t now = timestamp_now();
+  if(now < deputy_start_time + DISCOVERY_TIME_MS * 1000) {
+    // A different deputy has reported while we're still in discovery mode.
+    // Check to see if the deputy names are in conflict.
+    if(msg->host == hostname) {
+      dbgt("ERROR.  Detected another deputy named [%s].  Aborting to avoid conflicts.\n",
+          msg->host.c_str());
+      exit(2);
     }
+  } else {
+    dbgt("WARNING:  Still processing info messages while not in discovery mode??\n");
+  }
 }
 
 static gboolean
@@ -961,27 +928,27 @@ discovery_timeout(ProcmanDeputy* pmd)
     if(now < pmd->deputy_start_time + DISCOVERY_TIME_MS * 1000)
     {
         // publish a discover message to check for conflicting deputies
-        procman_lcm_discovery_t msg;
+        discovery_t msg;
         msg.utime = now;
         msg.host = pmd->hostname;
         msg.nonce = pmd->deputy_pid;
-        procman_lcm_discovery_t_publish(pmd->lcm, "PM_DISCOVER", &msg);
+        pmd->lcm_->publish("PM_DISCOVER", &msg);
         return TRUE;
     } else {
         // discovery period is over.
 
         // Adjust subscriptions
-        procman_lcm_deputy_info_t_unsubscribe(pmd->lcm, pmd->info2_subs);
-        pmd->info2_subs = NULL;
+        pmd->lcm_->unsubscribe(pmd->info2_subs_);
+        pmd->info2_subs_ = NULL;
 
-        procman_lcm_discovery_t_unsubscribe(pmd->lcm, pmd->discovery_subs);
-        pmd->discovery_subs = NULL;
+//        pmd->lcm_->unsubscribe(pmd->discovery_subs);
+//        pmd->discovery_subs = NULL;
+//
+//        pmd->discovery_subs = pmd->lcm_->subscribe("PM_DISCOVER",
+//            &ProcmanDeputy::DiscoveryReceived, pmd);
 
-        pmd->discovery_subs = procman_lcm_discovery_t_subscribe(pmd->lcm,
-            "PM_DISCOVER", procman_deputy_discovery_received, pmd);
-
-        pmd->orders2_subs = procman_lcm_orders_t_subscribe (pmd->lcm,
-                "PM_ORDERS", procman_deputy_order2_received, pmd);
+        pmd->orders2_subs_ = pmd->lcm_->subscribe("PM_ORDERS",
+                &ProcmanDeputy::OrdersReceived, pmd);
 
         // setup a timer to periodically transmit status information
         g_timeout_add(1000, (GSourceFunc) one_second_timeout, pmd);
@@ -1032,7 +999,7 @@ int main (int argc, char **argv)
 
     char *logfilename = NULL;
     int verbose = 0;
-    char *hostname_override = NULL;
+    std::string hostname_override;
     char *lcmurl = NULL;
 
     while ((c = getopt_long (argc, argv, optstring, long_opts, 0)) >= 0)
@@ -1050,8 +1017,7 @@ int main (int argc, char **argv)
                 lcmurl = strdup(optarg);
                 break;
             case 'n':
-                free(hostname_override);
-                hostname_override = strdup (optarg);
+                hostname_override = optarg;
                 break;
             case 'h':
             default:
@@ -1061,9 +1027,8 @@ int main (int argc, char **argv)
     }
 
      // create the lcm_t structure for doing IPC
-     lcm_t *lcm = lcm_create(lcmurl);
-     free(lcmurl);
-     if (NULL == lcm) {
+    lcm::LCM* lcm_obj = new lcm::LCM(lcmurl);
+     if (!lcm_obj) {
          fprintf (stderr, "error initializing LCM.  ");
          return 1;
      }
@@ -1088,12 +1053,11 @@ int main (int argc, char **argv)
      g_pmd = new ProcmanDeputy();
      ProcmanDeputy* pmd = g_pmd;
 
-     pmd->lcm = lcm;
+     pmd->lcm_ = lcm_obj;
      pmd->verbose = verbose;
      pmd->norders_slm = 0;
      pmd->nstale_orders_slm = 0;
      pmd->norders_forme_slm = 0;
-     pmd->last_sheriff_name = NULL;
      pmd->exiting = 0;
      pmd->deputy_start_time = timestamp_now();
      pmd->deputy_pid = getpid();
@@ -1105,13 +1069,14 @@ int main (int argc, char **argv)
      }
 
      // set deputy hostname to the system hostname
-     if (hostname_override) {
-         strcpy (pmd->hostname, hostname_override);
-         free (hostname_override);
+     if (!hostname_override.empty()) {
+       pmd->hostname = hostname_override;
      } else {
-         gethostname (pmd->hostname, sizeof (pmd->hostname));
+       char buf[256];
+       memset(buf, 0, sizeof(buf));
+       gethostname (buf, sizeof(buf) - 1);
+       pmd->hostname = buf;
      }
-//     sprintf (pmd->hostname + strlen (pmd->hostname), "%d", getpid());
 
      // load config file
      ProcmanOptions options = ProcmanOptions::Default(argc, argv);
@@ -1128,15 +1093,13 @@ int main (int argc, char **argv)
              pmd);
 
      // setup LCM handler
-     lcmu_glib_mainloop_attach_lcm (pmd->lcm);
+     lcmu_glib_mainloop_attach_lcm (pmd->lcm_->getUnderlyingLCM());
 
-     pmd->info2_subs =
-         procman_lcm_deputy_info_t_subscribe(pmd->lcm, "PM_INFO",
-                 procman_deputy_info2_received, pmd);
+     pmd->info2_subs_ = pmd->lcm_->subscribe("PM_INFO",
+         &ProcmanDeputy::InfoReceived, pmd);
 
-     pmd->discovery_subs =
-         procman_lcm_discovery_t_subscribe(pmd->lcm, "PM_DISCOVER",
-                 procman_deputy_discovery_received, pmd);
+     pmd->discovery_subs_ = pmd->lcm_->subscribe("PM_DISCOVER",
+         &ProcmanDeputy::DiscoveryReceived, pmd);
 
      // periodically publish a discovery message on startup.
      g_timeout_add(200, (GSourceFunc)discovery_timeout, pmd);
@@ -1148,7 +1111,7 @@ int main (int argc, char **argv)
      // go!
      g_main_loop_run (pmd->mainloop);
 
-     lcmu_glib_mainloop_detach_lcm (pmd->lcm);
+     lcmu_glib_mainloop_detach_lcm (pmd->lcm_->getUnderlyingLCM());
 
      // cleanup
      signal_pipe_cleanup();
@@ -1158,18 +1121,19 @@ int main (int argc, char **argv)
      g_main_loop_unref (pmd->mainloop);
 
      // unsubscribe
-     if(pmd->orders2_subs)
-         procman_lcm_orders_t_unsubscribe(pmd->lcm, pmd->orders2_subs);
-     if(pmd->info2_subs)
-         procman_lcm_deputy_info_t_unsubscribe(pmd->lcm, pmd->info2_subs);
-     if(pmd->discovery_subs)
-         procman_lcm_discovery_t_unsubscribe(pmd->lcm, pmd->discovery_subs);
+     if(pmd->orders2_subs_) {
+      pmd->lcm_->unsubscribe(pmd->orders2_subs_);
+     }
+     if(pmd->info2_subs_) {
+       pmd->lcm_->unsubscribe(pmd->info2_subs_);
+     }
+     if(pmd->discovery_subs_) {
+       pmd->lcm_->unsubscribe(pmd->discovery_subs_);
+     }
 
      pmd->observed_sheriffs_slm.clear();
 
-     lcm_destroy (pmd->lcm);
-
-     if (pmd->last_sheriff_name) free (pmd->last_sheriff_name);
+     delete pmd->lcm_;
 
      delete pmd;
 

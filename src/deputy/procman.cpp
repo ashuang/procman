@@ -553,8 +553,7 @@ procman_remove_all_variables(procman_t* pm)
 }
 
 ProcmanCommandPtr
-procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_id)
-{
+procman_add_cmd (procman_t *pm, const std::string& exec_str, const std::string& cmd_id) {
   // pick a suitable ID
   int32_t sheriff_id;
 
@@ -574,7 +573,7 @@ procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_id)
     return ProcmanCommandPtr();
   }
 
-  ProcmanCommandPtr newcmd(procman_cmd_create(cmd_str, cmd_id, sheriff_id));
+  ProcmanCommandPtr newcmd(procman_cmd_create(exec_str, cmd_id, sheriff_id));
   if (newcmd) {
     pm->commands_.push_back(newcmd);
   }
@@ -617,13 +616,13 @@ procman_get_cmd_status (procman_t *pm, ProcmanCommandPtr cmd)
 }
 
 void
-procman_cmd_change_str (ProcmanCommandPtr cmd, const char *cmd_str)
+procman_cmd_change_str (ProcmanCommandPtr cmd, const std::string& exec_str)
 {
-  cmd->exec_str_ = cmd_str;
+  cmd->exec_str_ = exec_str;
 }
 
 void
-procman_cmd_set_id(ProcmanCommandPtr cmd, const char* cmd_id)
+procman_cmd_set_id(ProcmanCommandPtr cmd, const std::string& cmd_id)
 {
   cmd->cmd_id_ = cmd_id;
 }
