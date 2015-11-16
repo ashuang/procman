@@ -55,9 +55,9 @@ static void dbgt (const char *fmt, ...)
     fprintf (stderr, "%s %s", timebuf, buf);
 }
 
-static procman_cmd_t * procman_cmd_create (const std::string& exec_str,
+static ProcmanCommand * procman_cmd_create (const std::string& exec_str,
     const std::string& cmd_id, int32_t sheriff_id);
-static void procman_cmd_split_str (procman_cmd_t *pcmd, const StringStringMap& variables);
+static void procman_cmd_split_str (ProcmanCommand *pcmd, const StringStringMap& variables);
 static void CheckCommand(procman_t* pm, ProcmanCommandPtr cmd);
 
 ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
@@ -105,7 +105,7 @@ procman_destroy (procman_t *pm)
   delete pm;
 }
 
-int procman_start_cmd (procman_t *pm, procman_cmd_t *p)
+int procman_start_cmd (procman_t *pm, ProcmanCommand *p)
 {
     int status;
 
@@ -194,7 +194,7 @@ int procman_start_all_cmds (procman_t *pm)
 }
 
 int
-procman_kill_cmd (procman_t *pm, procman_cmd_t *p, int signum)
+procman_kill_cmd (procman_t *pm, ProcmanCommand *p, int signum)
 {
   if (0 == p->pid) {
     dbgt ("[%s] has no PID.  not stopping (already dead)\n", p->Id().c_str());
@@ -222,7 +222,7 @@ procman_kill_cmd (procman_t *pm, procman_cmd_t *p, int signum)
   return 0;
 }
 
-int procman_stop_cmd (procman_t *pm, procman_cmd_t *p)
+int procman_stop_cmd (procman_t *pm, ProcmanCommand *p)
 {
     return procman_kill_cmd (pm, p, SIGINT);
 }
@@ -459,7 +459,7 @@ subst_vars(const char* w, const StringStringMap& vars)
 }
 
 static void
-procman_cmd_split_str (procman_cmd_t *pcmd, const StringStringMap& variables)
+procman_cmd_split_str (ProcmanCommand *pcmd, const StringStringMap& variables)
 {
     if (pcmd->argv) {
         g_strfreev (pcmd->argv);
@@ -510,12 +510,12 @@ procman_cmd_split_str (procman_cmd_t *pcmd, const StringStringMap& variables)
     g_strfreev(argv);
 }
 
-procman_cmd_t::procman_cmd_t() :
+ProcmanCommand::ProcmanCommand() :
   exec_str_(),
   descendants_to_kill() {
 }
 
-procman_cmd_t::~procman_cmd_t() {
+ProcmanCommand::~ProcmanCommand() {
   g_strfreev (argv);
   for (int i = 0; i<envc; i++) {
     g_strfreev(envp[i]);
@@ -523,10 +523,10 @@ procman_cmd_t::~procman_cmd_t() {
   free(envp);
 }
 
-static procman_cmd_t *
+static ProcmanCommand *
 procman_cmd_create(const std::string& exec_str, const std::string& cmd_id, int32_t sheriff_id)
 {
-  procman_cmd_t* pcmd = new procman_cmd_t();
+  ProcmanCommand* pcmd = new ProcmanCommand();
   pcmd->exec_str_ = exec_str;
   pcmd->cmd_id_ = cmd_id;
   pcmd->sheriff_id = sheriff_id;

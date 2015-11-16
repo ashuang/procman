@@ -751,7 +751,7 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
 
         // do we already have this command somewhere?
         DeputyCommand *mi = find_local_cmd(pmd, cmd_msg->sheriff_id);
-        procman_cmd_t* cmd = nullptr;
+        ProcmanCommand* cmd = nullptr;
 
         if (mi) {
           cmd = mi->cmd;

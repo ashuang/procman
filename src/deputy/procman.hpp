@@ -27,10 +27,10 @@ struct ProcmanOptions {
   bool verbose;
 };
 
-struct procman_cmd_t {
-  procman_cmd_t();
+struct ProcmanCommand {
+  ProcmanCommand();
 
-  ~procman_cmd_t();
+  ~ProcmanCommand();
 
   const std::string& ExecStr() const { return exec_str_; }
 
@@ -67,7 +67,7 @@ struct procman_cmd_t {
   std::vector<int> descendants_to_kill; // Used internally when killing a process.
 };
 
-typedef procman_cmd_t* ProcmanCommandPtr;
+typedef ProcmanCommand* ProcmanCommandPtr;
 
 struct procman_t {
   procman_t();
@@ -84,7 +84,7 @@ procman_t *procman_create (const ProcmanOptions& options);
 // destructor
 void procman_destroy (procman_t *pm);
 
-// returns a doubly linked list, where each data element is a procman_cmd_t
+// returns a doubly linked list, where each data element is a ProcmanCommand
 //
 // Do not modify this list, or it's contents!
 const std::vector<ProcmanCommandPtr>& procman_get_cmds (procman_t *pm);
@@ -103,7 +103,7 @@ int procman_start_all_cmds (procman_t *pm);
 int procman_stop_all_cmds (procman_t *pm);
 
 /* adds a command to be managed by procman.  returns a pointer to a newly
- * created procman_cmd_t, or NULL on failure
+ * created ProcmanCommand, or NULL on failure
  *
  * The command is not started.  To start a command running, use
  * procman_start_cmd
@@ -119,10 +119,10 @@ bool procman_remove_cmd (procman_t *pm, ProcmanCommandPtr cmd);
 
 /* checks to see if any processes spawned by procman_start_cmd have died
  *
- * dead_child should point to an unused procman_cmd_t *
+ * dead_child should point to an unused ProcmanCommand *
  *
  * on return, if a child process has died, then it is reaped and a pointer to
- * the procman_cmd_t is placed in dead_child.  If no children have died, then
+ * the ProcmanCommand is placed in dead_child.  If no children have died, then
  * dead_child points to NULL on return.
  *
  * This function does not block
@@ -137,7 +137,7 @@ int procman_close_dead_pipes (procman_t *pm, ProcmanCommandPtr cmd);
  */
 CommandStatus procman_get_cmd_status (procman_t *pm, ProcmanCommandPtr cmd);
 
-/* Changes the command that will be executed for a procman_cmd_t
+/* Changes the command that will be executed for a ProcmanCommand
  * no effect until the command is started again (if it's currently running)
  */
 void procman_cmd_change_str (ProcmanCommandPtr cmd, const std::string& exec_str);
