@@ -58,7 +58,6 @@ static void dbgt (const char *fmt, ...)
 static ProcmanCommand * procman_cmd_create (const std::string& exec_str,
     const std::string& cmd_id, int32_t sheriff_id);
 static void procman_cmd_split_str (ProcmanCommandPtr cmd, const StringStringMap& variables);
-static void CheckCommand(Procman* pm, ProcmanCommandPtr cmd);
 
 ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
 {
@@ -78,34 +77,19 @@ ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
   return result;
 }
 
-Procman::Procman() :
-  options(),
-  variables_() {}
-
-Procman *procman_create (const ProcmanOptions& options)
-{
-  Procman *pm = new Procman();
-
-  pm->options = options;
-
+Procman::Procman(const ProcmanOptions& options) :
+  options_(options),
+  variables_() {
   // add the bin path to the PATH environment variable
   //
   // TODO check and see if it's already there
   char *path = getenv ("PATH");
-  std::string newpath = options.bin_path + ":" + path;
+  std::string newpath = options_.bin_path + ":" + path;
   printf("setting PATH to %s\n", newpath.c_str());
   setenv("PATH", newpath.c_str(), 1);
-
-  return pm;
 }
 
-void
-procman_destroy (Procman *pm)
-{
-  delete pm;
-}
-
-int procman_start_cmd (Procman *pm, ProcmanCommandPtr cmd)
+int Procman::StartCommand(ProcmanCommandPtr cmd)
 {
     int status;
 
@@ -115,7 +99,7 @@ int procman_start_cmd (Procman *pm, ProcmanCommandPtr cmd)
     } else {
         dbgt ("[%s] starting\n", cmd->Id().c_str());
 
-        procman_cmd_split_str(cmd, pm->variables_);
+        procman_cmd_split_str(cmd, variables_);
 
         // close existing fd's
         if (cmd->stdout_fd >= 0) {
@@ -175,26 +159,7 @@ int procman_start_cmd (Procman *pm, ProcmanCommandPtr cmd)
     return 0;
 }
 
-int procman_start_all_cmds (Procman *pm)
-{
-  int status;
-  for (ProcmanCommandPtr cmd : pm->commands_) {
-    if (0 == cmd->pid) {
-      status = procman_start_cmd (pm, cmd);
-      if (0 != status) {
-        // if the command couldn't be started, then abort everything
-        // and return
-        procman_stop_all_cmds (pm);
-
-        return status;
-      }
-    }
-  }
-  return 0;
-}
-
-int
-procman_kill_cmd (Procman *pm, ProcmanCommandPtr cmd, int signum)
+int Procman::KillCommmand(ProcmanCommandPtr cmd, int signum)
 {
   if (0 == cmd->pid) {
     dbgt ("[%s] has no PID.  not stopping (already dead)\n", cmd->Id().c_str());
@@ -222,18 +187,12 @@ procman_kill_cmd (Procman *pm, ProcmanCommandPtr cmd, int signum)
   return 0;
 }
 
-int procman_stop_cmd (Procman *pm, ProcmanCommandPtr cmd)
-{
-    return procman_kill_cmd(pm, cmd, SIGINT);
-}
-
-int procman_stop_all_cmds (Procman *pm)
-{
+int Procman::StopAllCommands() {
   int ret = 0;
 
   // loop through each managed process and try to stop it
-  for (ProcmanCommandPtr cmd : pm->commands_) {
-    int status = procman_stop_cmd (pm, cmd);
+  for (ProcmanCommandPtr cmd : commands_) {
+    int status = KillCommmand(cmd, SIGINT);
     if (0 != status) {
       ret = status;
       // If something bad happened, try to stop the other processes, but
@@ -243,9 +202,7 @@ int procman_stop_all_cmds (Procman *pm)
   return ret;
 }
 
-ProcmanCommandPtr
-procman_check_for_dead_children (Procman *pm)
-{
+ProcmanCommandPtr Procman::CheckForDeadChildren() {
   int status;
 
   // check for dead children
@@ -254,7 +211,7 @@ procman_check_for_dead_children (Procman *pm)
   if(pid <= 0)
     return 0;
 
-  for (ProcmanCommandPtr cmd : pm->commands_) {
+  for (ProcmanCommandPtr cmd : commands_) {
     if(cmd->Pid() == 0 || pid != cmd->Pid())
       continue;
     dead_child = cmd;
@@ -287,9 +244,7 @@ procman_check_for_dead_children (Procman *pm)
   return dead_child;
 }
 
-int
-procman_close_dead_pipes (Procman *pm, ProcmanCommandPtr cmd)
-{
+int Procman::CloseDeadPipes(ProcmanCommandPtr cmd) {
   if (cmd->StdoutFd() < 0 && cmd->StdinFd() < 0)
     return 0;
 
@@ -529,7 +484,7 @@ procman_cmd_create(const std::string& exec_str, const std::string& cmd_id, int32
   ProcmanCommand* pcmd = new ProcmanCommand();
   pcmd->exec_str_ = exec_str;
   pcmd->cmd_id_ = cmd_id;
-  pcmd->sheriff_id = sheriff_id;
+  pcmd->sheriff_id_ = sheriff_id;
   pcmd->stdout_fd = -1;
   pcmd->stdin_fd = -1;
 
@@ -541,30 +496,26 @@ procman_cmd_create(const std::string& exec_str, const std::string& cmd_id, int32
   return pcmd;
 }
 
-const std::vector<ProcmanCommandPtr>&
-procman_get_cmds (Procman *pm) {
-  return pm->commands_;
+const std::vector<ProcmanCommandPtr>& Procman::GetCommands() {
+  return commands_;
 }
 
-void
-procman_remove_all_variables(Procman* pm)
-{
-  pm->variables_.clear();
+void Procman::RemoveAllVariables() {
+  variables_.clear();
 }
 
-ProcmanCommandPtr
-procman_add_cmd (Procman *pm, const std::string& exec_str, const std::string& cmd_id) {
+ProcmanCommandPtr Procman::AddCommand(const std::string& exec_str, const std::string& cmd_id) {
   // pick a suitable ID
   int32_t sheriff_id;
 
   // TODO make this more efficient (i.e. sort the existing sheriff_ids)
   //      this implementation is O (n^2)
   for (sheriff_id=1; sheriff_id<INT_MAX; sheriff_id++) {
-    auto iter = std::find_if(pm->commands_.begin(), pm->commands_.end(),
+    auto iter = std::find_if(commands_.begin(), commands_.end(),
         [sheriff_id](ProcmanCommandPtr cmd) {
         return cmd->SheriffId() == sheriff_id;
         });
-    if (iter != pm->commands_.end()) {
+    if (iter != commands_.end()) {
       break;
     }
   }
@@ -575,17 +526,16 @@ procman_add_cmd (Procman *pm, const std::string& exec_str, const std::string& cm
 
   ProcmanCommandPtr newcmd(procman_cmd_create(exec_str, cmd_id, sheriff_id));
   if (newcmd) {
-    pm->commands_.push_back(newcmd);
+    commands_.push_back(newcmd);
   }
 
   dbgt ("[%s] new command [%s]\n", newcmd->Id().c_str(), newcmd->ExecStr().c_str());
   return newcmd;
 }
 
-bool
-procman_remove_cmd (Procman *pm, ProcmanCommandPtr cmd)
+bool Procman::RemoveCommand(ProcmanCommandPtr cmd)
 {
-  CheckCommand(pm, cmd);
+  CheckCommand(cmd);
 
   // stop the command (if it's running)
   if (cmd->Pid()) {
@@ -594,16 +544,14 @@ procman_remove_cmd (Procman *pm, ProcmanCommandPtr cmd)
     return false;
   }
 
-  procman_close_dead_pipes(pm, cmd);
+  CloseDeadPipes(cmd);
 
   // remove
-  pm->commands_.erase(std::find(pm->commands_.begin(), pm->commands_.end(),
-        cmd));
+  commands_.erase(std::find(commands_.begin(), commands_.end(), cmd));
   return true;
 }
 
-CommandStatus
-procman_get_cmd_status (Procman *pm, ProcmanCommandPtr cmd)
+CommandStatus Procman::GetCommandStatus(ProcmanCommandPtr cmd)
 {
   if (cmd->Pid() > 0) {
     return PROCMAN_CMD_RUNNING;
@@ -614,22 +562,19 @@ procman_get_cmd_status (Procman *pm, ProcmanCommandPtr cmd)
   return PROCMAN_CMD_INVALID;
 }
 
-void
-procman_cmd_change_str (ProcmanCommandPtr cmd, const std::string& exec_str)
-{
+void Procman::SetCommandExecStr(ProcmanCommandPtr cmd,
+    const std::string& exec_str) {
+  CheckCommand(cmd);
   cmd->exec_str_ = exec_str;
 }
 
-void
-procman_cmd_set_id(ProcmanCommandPtr cmd, const std::string& cmd_id)
-{
+void Procman::SetCommandId(ProcmanCommandPtr cmd, const std::string& cmd_id) {
+  CheckCommand(cmd);
   cmd->cmd_id_ = cmd_id;
 }
 
-static void
-CheckCommand(Procman* pm, ProcmanCommandPtr cmd) {
-  if (std::find(pm->commands_.begin(), pm->commands_.end(), cmd) ==
-      pm->commands_.end()) {
+void Procman::CheckCommand(ProcmanCommandPtr cmd) {
+  if (std::find(commands_.begin(), commands_.end(), cmd) == commands_.end()) {
     throw std::invalid_argument("invalid command");
   }
 }

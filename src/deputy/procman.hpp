@@ -34,7 +34,7 @@ struct ProcmanCommand {
 
   const std::string& Id() const { return cmd_id_; }
 
-  int SheriffId() const { return sheriff_id; }
+  int SheriffId() const { return sheriff_id_; }
 
   int Pid() const { return pid; }
 
@@ -42,7 +42,7 @@ struct ProcmanCommand {
 
   int StdinFd() const { return stdin_fd; }
 
-  int32_t sheriff_id;   // unique to the containing instance of Procman
+  int32_t sheriff_id_;   // unique to the containing instance of Procman
 
   std::string exec_str_; // the command to execute.  Do not modify directly
 
@@ -67,83 +67,76 @@ struct ProcmanCommand {
 
 typedef std::shared_ptr<ProcmanCommand> ProcmanCommandPtr;
 
-struct Procman {
-  Procman();
+class Procman {
+  public:
+    Procman(const ProcmanOptions& options);
 
-  ProcmanOptions options;
-  std::vector<ProcmanCommandPtr> commands_;
-  StringStringMap variables_;
+    /**
+     * Removes all variables from the variable expansion table.
+     */
+    void RemoveAllVariables();
+
+    // returns a doubly linked list, where each data element is a ProcmanCommand
+    //
+    // Do not modify this list, or it's contents!
+    const std::vector<ProcmanCommandPtr>& GetCommands();
+
+    int StartCommand(ProcmanCommandPtr cmd);
+    int StopCommand(ProcmanCommandPtr cmd);
+    int KillCommmand(ProcmanCommandPtr cmd, int signum);
+
+    // convenience functions
+    int StopAllCommands();
+
+    /* adds a command to be managed by procman.  returns a pointer to a newly
+     * created ProcmanCommand, or NULL on failure
+     *
+     * The command is not started.  To start a command running, use
+     * procman_start_cmd
+     */
+    ProcmanCommandPtr AddCommand(const std::string& exec_str, const std::string& cmd_id);
+
+    /* Removes a command from management by procman.  The command must already be
+     * stopped and reaped by procman_check_for_dead_children.  Otherwise, this
+     * function will fail.  On success, the %cmd structure is destroyed and no
+     * longer available for use.
+     */
+    bool RemoveCommand(ProcmanCommandPtr cmd);
+
+    /* checks to see if any processes spawned by procman_start_cmd have died
+     *
+     * dead_child should point to an unused ProcmanCommand *
+     *
+     * on return, if a child process has died, then it is reaped and a pointer to
+     * the ProcmanCommand is placed in dead_child.  If no children have died, then
+     * dead_child points to NULL on return.
+     *
+     * This function does not block
+     *
+     * returns 0 on success, -1 on failure
+     */
+    ProcmanCommandPtr CheckForDeadChildren();
+
+    int CloseDeadPipes(ProcmanCommandPtr cmd);
+
+    CommandStatus GetCommandStatus(ProcmanCommandPtr cmd);
+
+    /* Changes the command that will be executed for a ProcmanCommand
+     * no effect until the command is started again (if it's currently running)
+     */
+    void SetCommandExecStr(ProcmanCommandPtr cmd, const std::string& exec_str);
+
+    /**
+     * Sets the command id.
+     */
+    void SetCommandId(ProcmanCommandPtr cmd, const std::string& cmd_id);
+
+  private:
+    void CheckCommand(ProcmanCommandPtr cmd);
+    ProcmanOptions options_;
+    std::vector<ProcmanCommandPtr> commands_;
+    StringStringMap variables_;
 };
-
-
-// constructor
-Procman *procman_create (const ProcmanOptions& options);
-
-// destructor
-void procman_destroy (Procman *pm);
-
-// returns a doubly linked list, where each data element is a ProcmanCommand
-//
-// Do not modify this list, or it's contents!
-const std::vector<ProcmanCommandPtr>& procman_get_cmds (Procman *pm);
-
-/**
- * Removes all variables from the variable expansion table.
- */
-void procman_remove_all_variables(Procman* pm);
-
-int procman_start_cmd (Procman *pm, ProcmanCommandPtr cmd);
-int procman_stop_cmd (Procman *pm, ProcmanCommandPtr cmd);
-int procman_kill_cmd (Procman *pm, ProcmanCommandPtr cmd, int signum);
-
-// convenience functions
-int procman_start_all_cmds (Procman *pm);
-int procman_stop_all_cmds (Procman *pm);
-
-/* adds a command to be managed by procman.  returns a pointer to a newly
- * created ProcmanCommand, or NULL on failure
- *
- * The command is not started.  To start a command running, use
- * procman_start_cmd
- */
-ProcmanCommandPtr procman_add_cmd (Procman *pm, const std::string& exec_str, const std::string& cmd_id);
-
-/* Removes a command from management by procman.  The command must already be
- * stopped and reaped by procman_check_for_dead_children.  Otherwise, this
- * function will fail.  On success, the %cmd structure is destroyed and no
- * longer available for use.
- */
-bool procman_remove_cmd (Procman *pm, ProcmanCommandPtr cmd);
-
-/* checks to see if any processes spawned by procman_start_cmd have died
- *
- * dead_child should point to an unused ProcmanCommand *
- *
- * on return, if a child process has died, then it is reaped and a pointer to
- * the ProcmanCommand is placed in dead_child.  If no children have died, then
- * dead_child points to NULL on return.
- *
- * This function does not block
- *
- * returns 0 on success, -1 on failure
- */
-ProcmanCommandPtr procman_check_for_dead_children (Procman *pm);
-
-int procman_close_dead_pipes (Procman *pm, ProcmanCommandPtr cmd);
-
-/* returns 0  TODO
- */
-CommandStatus procman_get_cmd_status (Procman *pm, ProcmanCommandPtr cmd);
-
-/* Changes the command that will be executed for a ProcmanCommand
- * no effect until the command is started again (if it's currently running)
- */
-void procman_cmd_change_str (ProcmanCommandPtr cmd, const std::string& exec_str);
-
-/**
- * Sets the command id.
- */
-void procman_cmd_set_id(ProcmanCommandPtr cmd, const std::string& cmd_id);
 
 #define PROCMAN_MAX_MESSAGE_AGE_USEC 60000000LL
 

@@ -311,7 +311,7 @@ start_cmd (ProcmanDeputy *pmd, DeputyCommand* mi, int desired_runid)
     }
     mi->last_start_time = timestamp_now();
 
-    status = procman_start_cmd (pmd->pm, cmd);
+    status = pmd->pm->StartCommand(cmd);
     if (0 != status) {
         printf_and_transmit (pmd, 0, "[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
         dbgt ("[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
@@ -355,11 +355,11 @@ stop_cmd (ProcmanDeputy *pmd, DeputyCommand* mi)
     int64_t sigkill_time = mi->first_kill_time + (int64_t)(mi->stop_time_allowed * 1000000);
     int status;
     if(!mi->first_kill_time) {
-        status = procman_kill_cmd (pmd->pm, cmd, mi->stop_signal);
+        status = pmd->pm->KillCommmand(cmd, mi->stop_signal);
         mi->first_kill_time = now;
         mi->num_kills_sent++;
     } else if(now > sigkill_time) {
-        status = procman_kill_cmd (pmd->pm, cmd, SIGKILL);
+        status = pmd->pm->KillCommmand(cmd, SIGKILL);
     } else {
         return 0;
     }
@@ -374,7 +374,7 @@ stop_cmd (ProcmanDeputy *pmd, DeputyCommand* mi)
 static void
 check_for_dead_children (ProcmanDeputy *pmd)
 {
-  ProcmanCommandPtr cmd = procman_check_for_dead_children(pmd->pm);
+  ProcmanCommandPtr cmd = pmd->pm->CheckForDeadChildren();
 
   while (cmd) {
     int status;
@@ -412,7 +412,7 @@ check_for_dead_children (ProcmanDeputy *pmd)
       mi->stdout_ioc = NULL;
       mi->stdout_sid = 0;
 
-      procman_close_dead_pipes (pmd->pm, cmd);
+      pmd->pm->CloseDeadPipes(cmd);
     }
 
     // remove ?
@@ -420,12 +420,12 @@ check_for_dead_children (ProcmanDeputy *pmd)
       dbgt ("[%s] remove\n", cmd->Id().c_str());
       // cleanup the private data structure used
       delete mi;
-      procman_remove_cmd (pmd->pm, cmd);
+      pmd->pm->RemoveCommand(cmd);
     } else {
       maybe_schedule_respawn(pmd, mi);
     }
 
-    cmd = procman_check_for_dead_children (pmd->pm);
+    cmd = pmd->pm->CheckForDeadChildren();
     transmit_proc_info (pmd);
   }
 }
@@ -437,10 +437,10 @@ on_quit_timeout(ProcmanDeputy* pmd)
     DeputyCommand* mi = item.second;
     ProcmanCommandPtr cmd = item.first;
     if (cmd->Pid()) {
-      procman_kill_cmd (pmd->pm, cmd, SIGKILL);
+      pmd->pm->KillCommmand(cmd, SIGKILL);
     }
     delete mi;
-    procman_remove_cmd (pmd->pm, cmd);
+    pmd->pm->RemoveCommand(cmd);
   }
 
   dbgt ("stopping deputy main loop\n");
@@ -467,7 +467,7 @@ glib_handle_signal (int signal, ProcmanDeputy *pmd) {
           DeputyCommand* mi = item.second;
           ProcmanCommandPtr cmd = item.first;
           if (cmd->Pid()) {
-            procman_kill_cmd (pmd->pm, cmd, mi->stop_signal);
+            pmd->pm->KillCommmand(cmd, mi->stop_signal);
             if(mi->stop_time_allowed > max_stop_time_allowed)
               max_stop_time_allowed = mi->stop_time_allowed;
           }
@@ -483,7 +483,7 @@ glib_handle_signal (int signal, ProcmanDeputy *pmd) {
     if(pmd->exiting) {
         // if we're exiting, and all child processes are dead, then exit.
         int all_dead = 1;
-        for (ProcmanCommandPtr cmd : procman_get_cmds(pmd->pm)) {
+        for (ProcmanCommandPtr cmd : pmd->pm->GetCommands()) {
             if (cmd->pid) {
                 all_dead = 0;
                 break;
@@ -623,7 +623,7 @@ one_second_timeout (ProcmanDeputy *pmd)
 }
 
 static gboolean
-introspection_timeout (ProcmanDeputy *s)
+introspection_timeout (ProcmanDeputy *pmd)
 {
     int mypid = getpid();
     proc_cpu_mem_t pinfo;
@@ -633,25 +633,25 @@ introspection_timeout (ProcmanDeputy *s)
     }
 
     int nrunning = 0;
-    for (ProcmanCommandPtr cmd : procman_get_cmds (s->pm)) {
+    for (ProcmanCommandPtr cmd : pmd->pm->GetCommands()) {
         if (cmd->pid) nrunning++;
     }
 
     dbgt ("MARK - rss: %" PRId64 " kB vsz: %" PRId64
             " kB procs: %d (%d alive)\n",
             pinfo.rss / 1024, pinfo.vsize / 1024,
-            (int) procman_get_cmds(s->pm).size(),
+            (int) pmd->commands_.size(),
             nrunning
            );
 //    dbgt ("       orders: %d forme: %d (%d stale) sheriffs: %d\n",
-//            s->norders_slm, s->norders_forme_slm, s->nstale_orders_slm,
-//            g_list_length (s->observed_sheriffs_slm));
+//            pmd->norders_slm, pmd->norders_forme_slm, pmd->nstale_orders_slm,
+//            g_list_length (pmd->observed_sheriffs_slm));
 
-    s->norders_slm = 0;
-    s->norders_forme_slm = 0;
-    s->nstale_orders_slm = 0;
+    pmd->norders_slm = 0;
+    pmd->norders_forme_slm = 0;
+    pmd->nstale_orders_slm = 0;
 
-    s->observed_sheriffs_slm.clear();
+    pmd->observed_sheriffs_slm.clear();
 
     return TRUE;
 }
@@ -730,7 +730,7 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
     pmd->observed_sheriffs_slm.insert(orders->sheriff_name);
 
     // update variables
-    procman_remove_all_variables(pmd->pm);
+    pmd->pm->RemoveAllVariables();
 //    for(int varind=0; varind<orders->nvars; varind++) {
 //        procman_set_variable(pmd->pm, orders->varnames[varind], orders->varvals[varind]);
 //    }
@@ -757,7 +757,7 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
         } else {
             // if not, then create it.
             if (pmd->verbose) dbgt ("adding new process (%s)\n", cmd_msg->cmd.exec_str.c_str());
-            cmd = procman_add_cmd (pmd->pm, cmd_msg->cmd.exec_str, cmd_msg->cmd.command_id);
+            cmd = pmd->pm->AddCommand(cmd_msg->cmd.exec_str, cmd_msg->cmd.command_id);
 
             // allocate a private data structure for glib info
             mi = new DeputyCommand();
@@ -775,14 +775,14 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
         }
 
         // check if the command needs to be started or stopped
-        CommandStatus cmd_status = procman_get_cmd_status (pmd->pm, cmd);
+        CommandStatus cmd_status = pmd->pm->GetCommandStatus(cmd);
 
         // rename a command?  does not kill a running command, so effect does
         // not apply until command is restarted.
         if (cmd->ExecStr() != cmd_msg->cmd.exec_str) {
             dbgt ("[%s] exec str -> [%s]\n", cmd->Id().c_str(),
                 cmd_msg->cmd.exec_str.c_str());
-            procman_cmd_change_str (cmd, cmd_msg->cmd.exec_str);
+            pmd->pm->SetCommandExecStr(cmd, cmd_msg->cmd.exec_str);
 
             action_taken = 1;
         }
@@ -791,7 +791,7 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
         if (cmd_msg->cmd.command_id != cmd->Id()) {
             dbgt ("[%s] rename -> [%s]\n", cmd->Id().c_str(),
                     cmd_msg->cmd.command_id.c_str());
-            procman_cmd_set_id(cmd, cmd_msg->cmd.command_id);
+            pmd->pm->SetCommandId(cmd, cmd_msg->cmd.command_id);
             action_taken = 1;
         }
 
@@ -868,7 +868,7 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
             dbgt ("[%s] remove\n", cmd->Id().c_str());
             // cleanup the private data structure used
             delete mi;
-            procman_remove_cmd (pmd->pm, cmd);
+            pmd->pm->RemoveCommand(cmd);
         }
 
         action_taken = 1;
@@ -1078,7 +1078,7 @@ int main (int argc, char **argv)
 
      // load config file
      ProcmanOptions options = ProcmanOptions::Default(argc, argv);
-     pmd->pm = procman_create(options);
+     pmd->pm = new Procman(options);
 
      // convert Unix signals into glib events
      signal_pipe_init();
@@ -1114,7 +1114,7 @@ int main (int argc, char **argv)
      // cleanup
      signal_pipe_cleanup();
 
-     procman_destroy (pmd->pm);
+     delete pmd->pm;
 
      g_main_loop_unref (pmd->mainloop);
 
