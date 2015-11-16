@@ -27,31 +27,33 @@ typedef struct _procman_params {
     int verbose;
 } procman_params_t;
 
-typedef struct _procman_cmd {
-    int32_t cmd_id;   // unique to the containing instance of procman_t
+struct procman_cmd_t {
+  procman_cmd_t();
 
-    GString *cmd; // the command to execute.  Do not modify directly
+  int32_t sheriff_id;   // unique to the containing instance of procman_t
 
-    char* cmd_name;  // a user-assigned name for the command.  Do not modify directly
+  GString *cmd; // the command to execute.  Do not modify directly
 
-    int pid;      // pid of process when running.  0 otherwise
+  char* cmd_id;  // a user-assigned name for the command.  Do not modify directly
 
-    int stdin_fd;  // when the process is running, writing to this pipe
-                   // writes to stdin of the process
-    int stdout_fd; // and reading from this pipe reads from stdout of the proc
+  int pid;      // pid of process when running.  0 otherwise
 
-    int exit_status;
+  int stdin_fd;  // when the process is running, writing to this pipe
+  // writes to stdin of the process
+  int stdout_fd; // and reading from this pipe reads from stdout of the proc
 
-    int envc;    //number of environment variables
-    char ***envp; //environment variables to set
+  int exit_status;
 
-    int argc;    //number of arguments, shouldn't be needed
-    char **argv; // don't touch this
+  int envc;    //number of environment variables
+  char ***envp; //environment variables to set
 
-    GArray* descendants_to_kill; // Used internally when killing a process.
+  int argc;    //number of arguments, shouldn't be needed
+  char **argv; // don't touch this
 
-    void *user;  // use this for application-specific data
-} procman_cmd_t;
+  std::vector<int> descendants_to_kill; // Used internally when killing a process.
+
+  void *user;  // use this for application-specific data
+};
 
 
 void procman_params_init_defaults (procman_params_t *params,
@@ -99,7 +101,7 @@ int procman_stop_all_cmds (procman_t *pm);
  * The command is not started.  To start a command running, use
  * procman_start_cmd
  */
-procman_cmd_t* procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_name);
+procman_cmd_t* procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_id);
 
 /* Removes a command from management by procman.  The command must already be
  * stopped and reaped by procman_check_for_dead_children.  Otherwise, this
@@ -118,7 +120,7 @@ procman_cmd_t *procman_find_cmd (procman_t *pm, const char *cmd_str);
 /* searches for a command.  returns a pointer to the corresponding
  * procman_cmd_t on success, NULL on failure
  */
-procman_cmd_t *procman_find_cmd_by_id (procman_t *pm, int32_t cmd_id);
+procman_cmd_t *procman_find_cmd_by_id (procman_t *pm, int32_t sheriff_id);
 
 /* checks to see if any processes spawned by procman_start_cmd have died
  *
@@ -149,7 +151,7 @@ void procman_cmd_change_str (procman_cmd_t *cmd, const char *cmd_str);
 /**
  * Sets the command name.
  */
-void procman_cmd_set_name(procman_cmd_t* cmd, const char* cmd_name);
+void procman_cmd_set_name(procman_cmd_t* cmd, const char* cmd_id);
 
 #define PROCMAN_MAX_MESSAGE_AGE_USEC 60000000LL
 

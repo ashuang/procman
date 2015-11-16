@@ -39,7 +39,6 @@ static void strsplit (char *buf, char **words, int maxwords)
     words[wordind] = NULL;
 }
 
-#ifdef __linux__
 static int
 procinfo_read_proc_cpu_mem_linux(int pid, proc_cpu_mem_t *s)
 {
@@ -252,39 +251,17 @@ procinfo_get_descendants (int pid)
         pid_info_get_descendants(root, result);
     return result;
 }
-#else
-GArray*
-procinfo_get_descendants (int pid)
-{
-    return g_array_new(FALSE, FALSE, sizeof(int));
-}
-int
-procinfo_is_orphaned_child_of(int orphan, int parent)
-{
-    return 0;
-}
-#endif
 
 int
 procinfo_read_proc_cpu_mem (int pid, proc_cpu_mem_t *s)
 {
-#ifdef __linux__
     return procinfo_read_proc_cpu_mem_linux(pid, s);
-#else
-    memset(s, 0, sizeof(proc_cpu_mem_t));
-    return 0;
-#endif
 }
 
 int
 procinfo_read_sys_cpu_mem (sys_cpu_mem_t *s)
 {
-#ifdef __linux__
     return procinfo_read_sys_cpu_mem_linux(s);
-#else
-    memset(s, 0, sizeof(sys_cpu_mem_t));
-    return 0;
-#endif
 }
 
 }  // namespace procman

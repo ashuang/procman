@@ -55,7 +55,7 @@ static void dbgt (const char *fmt, ...)
     fprintf (stderr, "%s %s", timebuf, buf);
 }
 
-static procman_cmd_t * procman_cmd_create (const char *cmd, const char* cmd_name, int32_t cmd_id);
+static procman_cmd_t * procman_cmd_create (const char *cmd, const char* cmd_id, int32_t sheriff_id);
 static void procman_cmd_destroy (procman_cmd_t *cmd);
 static void procman_cmd_split_str (procman_cmd_t *pcmd, GHashTable* variables);
 
@@ -131,10 +131,10 @@ int procman_start_cmd (procman_t *pm, procman_cmd_t *p)
     int status;
 
     if (0 != p->pid) {
-        dbgt ("[%s] has non-zero PID.  not starting again\n", p->cmd_name);
+        dbgt ("[%s] has non-zero PID.  not starting again\n", p->cmd_id);
         return -1;
     } else {
-        dbgt ("[%s] starting\n", p->cmd_name);
+        dbgt ("[%s] starting\n", p->cmd_id);
 
         procman_cmd_split_str(p, pm->variables);
 
@@ -169,8 +169,8 @@ int procman_start_cmd (procman_t *pm, procman_cmd_t *p)
 
             char ebuf[1024];
             snprintf (ebuf, sizeof(ebuf), "%s", strerror(errno));
-            dbgt("[%s] ERRROR executing [%s]\n", p->cmd_name, p->cmd->str);
-            dbgt("[%s] execv: %s\n", p->cmd_name, ebuf);
+            dbgt("[%s] ERRROR executing [%s]\n", p->cmd_id, p->cmd->str);
+            dbgt("[%s] execv: %s\n", p->cmd_id, ebuf);
 
             // if execv returns, the command did not execute successfully
             // (e.g. permission denied or bad path or something)
@@ -178,8 +178,8 @@ int procman_start_cmd (procman_t *pm, procman_cmd_t *p)
             // restore stderr so we can barf a real error message
             close(STDERR_FILENO);
             dup2(stderr_backup, STDERR_FILENO);
-            dbgt("[%s] ERROR executing [%s]\n", p->cmd_name, p->cmd->str);
-            dbgt("[%s] execv: %s\n", p->cmd_name, ebuf);
+            dbgt("[%s] ERROR executing [%s]\n", p->cmd_id, p->cmd->str);
+            dbgt("[%s] execv: %s\n", p->cmd_id, ebuf);
             close(stderr_backup);
 
             exit(-1);
@@ -219,36 +219,30 @@ int procman_start_all_cmds (procman_t *pm)
 int
 procman_kill_cmd (procman_t *pm, procman_cmd_t *p, int signum)
 {
-    if (0 == p->pid) {
-        dbgt ("[%s] has no PID.  not stopping (already dead)\n", p->cmd_name);
-        return -EINVAL;
-    }
-    // get a list of the process's descendants
-    GArray* descendants = procinfo_get_descendants(p->pid);
+  if (0 == p->pid) {
+    dbgt ("[%s] has no PID.  not stopping (already dead)\n", p->cmd_id);
+    return -EINVAL;
+  }
+  // get a list of the process's descendants
+  std::vector<int> descendants = procinfo_get_descendants(p->pid);
 
-    dbgt ("[%s] stop (signal %d)\n", p->cmd_name, signum);
-    if (0 != kill (p->pid, signum)) {
-        g_array_free(descendants, TRUE);
-        return -errno;
-    }
+  dbgt ("[%s] stop (signal %d)\n", p->cmd_id, signum);
+  if (0 != kill (p->pid, signum)) {
+    return -errno;
+  }
 
-    // send the same signal to all of the process's descendants
-    for(int i=0; i<descendants->len; i++) {
-        int child_pid = g_array_index(descendants, int, i);
-        dbgt("signal %d to descendant %d (%p)\n", signum, child_pid, p);
-        kill(child_pid, signum);
+  // send the same signal to all of the process's descendants
+  for (int child_pid : descendants) {
+    dbgt("signal %d to descendant %d (%p)\n", signum, child_pid, p);
+    kill(child_pid, signum);
 
-        int new_descendant = 1;
-        for(int j=0; j<p->descendants_to_kill->len; j++) {
-            if(g_array_index(p->descendants_to_kill, int, j) == child_pid) {
-                new_descendant = 0;
-                break;
-            }
-        }
-        if(new_descendant)
-            g_array_append_val(p->descendants_to_kill, child_pid);
+    auto iter = std::find(p->descendants_to_kill.begin(),
+        p->descendants_to_kill.end(), child_pid);
+    if (iter ==  p->descendants_to_kill.end()) {
+      p->descendants_to_kill.push_back(child_pid);
     }
-    return 0;
+  }
+  return 0;
 }
 
 int procman_stop_cmd (procman_t *pm, procman_cmd_t *p)
@@ -299,21 +293,20 @@ procman_check_for_dead_children (procman_t *pm, procman_cmd_t **dead_child)
         if (WIFSIGNALED (status)) {
             int signum = WTERMSIG (status);
             dbgt ("[%s] terminated by signal %d (%s)\n",
-                    p->cmd_name, signum, strsignal (signum));
+                    p->cmd_id, signum, strsignal (signum));
         } else if (status != 0) {
             dbgt ("[%s] exited with status %d\n",
-                    p->cmd_name, WEXITSTATUS (status));
+                    p->cmd_id, WEXITSTATUS (status));
         } else {
-          dbgt ("[%s] exited\n", p->cmd_name);
+          dbgt ("[%s] exited\n", p->cmd_id);
         }
 
         // check for and kill orphaned children.
-        for(int orphan_index=0; orphan_index<p->descendants_to_kill->len; orphan_index++) {
-            int child_pid = g_array_index(p->descendants_to_kill, int, orphan_index);
-            if(procinfo_is_orphaned_child_of(child_pid, pid)) {
-                dbgt("sending SIGKILL to orphan process %d\n", child_pid);
-                kill(child_pid, SIGKILL);
-            }
+        for (int child_pid : p->descendants_to_kill) {
+          if(procinfo_is_orphaned_child_of(child_pid, pid)) {
+            dbgt("sending SIGKILL to orphan process %d\n", child_pid);
+            kill(child_pid, SIGKILL);
+          }
         }
 
         return status;
@@ -332,7 +325,7 @@ procman_close_dead_pipes (procman_t *pm, procman_cmd_t *cmd)
     if (cmd->pid) {
         dbgt ("refusing to close pipes for command "
                 "with nonzero pid [%s] [%d]\n",
-                cmd->cmd_name, cmd->pid);
+                cmd->cmd_id, cmd->pid);
         return 0;
     }
     if (cmd->stdout_fd >= 0) {
@@ -541,37 +534,38 @@ procman_cmd_split_str (procman_cmd_t *pcmd, GHashTable* variables)
     g_strfreev(argv);
 }
 
+procman_cmd_t::procman_cmd_t() {
+}
+
 static procman_cmd_t *
-procman_cmd_create (const char *cmd, const char* cmd_name, int32_t cmd_id)
+procman_cmd_create (const char *cmd, const char* cmd_id, int32_t sheriff_id)
 {
-    procman_cmd_t *pcmd = (procman_cmd_t*)calloc(1, sizeof (procman_cmd_t));
-    pcmd->cmd = g_string_new ("");
-    pcmd->cmd_id = cmd_id;
-    pcmd->cmd_name = g_strdup(cmd_name);
-    pcmd->stdout_fd = -1;
-    pcmd->stdin_fd = -1;
-    g_string_assign (pcmd->cmd, cmd);
+  procman_cmd_t* pcmd = new procman_cmd_t();
+  pcmd->cmd = g_string_new ("");
+  pcmd->sheriff_id = sheriff_id;
+  pcmd->cmd_id = g_strdup(cmd_id);
+  pcmd->stdout_fd = -1;
+  pcmd->stdin_fd = -1;
+  g_string_assign (pcmd->cmd, cmd);
 
-    pcmd->argv = NULL;
-    pcmd->argc = 0;
-    pcmd->envp = NULL;
-    pcmd->envc = 0;
-    pcmd->descendants_to_kill = g_array_new(FALSE, FALSE, sizeof(int));
+  pcmd->argv = NULL;
+  pcmd->argc = 0;
+  pcmd->envp = NULL;
+  pcmd->envc = 0;
 
-    return pcmd;
+  return pcmd;
 }
 
 static void
 procman_cmd_destroy (procman_cmd_t *cmd)
 {
-    g_string_free (cmd->cmd, TRUE);
-    g_strfreev (cmd->argv);
-    g_array_free(cmd->descendants_to_kill, TRUE);
-    for(int i=0;i<cmd->envc;i++)
-       g_strfreev (cmd->envp[i]);
-    free(cmd->envp);
-    g_free(cmd->cmd_name);
-    free (cmd);
+  g_string_free (cmd->cmd, TRUE);
+  g_strfreev (cmd->argv);
+  for(int i=0;i<cmd->envc;i++)
+    g_strfreev (cmd->envp[i]);
+  free(cmd->envp);
+  g_free(cmd->cmd_id);
+  delete cmd;
 }
 
 const GList *
@@ -598,36 +592,36 @@ procman_remove_all_variables(procman_t* pm)
 }
 
 procman_cmd_t*
-procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_name)
+procman_add_cmd (procman_t *pm, const char *cmd_str, const char* cmd_id)
 {
     // pick a suitable ID
-    int32_t cmd_id;
+    int32_t sheriff_id;
 
-    // TODO make this more efficient (i.e. sort the existing cmd_ids)
+    // TODO make this more efficient (i.e. sort the existing sheriff_ids)
     //      this implementation is O (n^2)
-    for (cmd_id=1; cmd_id<INT_MAX; cmd_id++) {
+    for (sheriff_id=1; sheriff_id<INT_MAX; sheriff_id++) {
         int collision = 0;
         GList *iter;
         for (iter=pm->commands; iter; iter=iter->next) {
             procman_cmd_t *cmd = (procman_cmd_t*)iter->data;
-            if (cmd->cmd_id == cmd_id) {
+            if (cmd->sheriff_id == sheriff_id) {
                 collision = 1;
                 break;
             }
         }
         if (! collision) break;
     }
-    if (cmd_id == INT_MAX) {
+    if (sheriff_id == INT_MAX) {
         dbgt ("way too many commands on the system....\n");
         return NULL;
     }
 
-    procman_cmd_t *newcmd = procman_cmd_create (cmd_str, cmd_name, cmd_id);
+    procman_cmd_t *newcmd = procman_cmd_create (cmd_str, cmd_id, sheriff_id);
     if (newcmd) {
         pm->commands = g_list_append (pm->commands, newcmd);
     }
 
-    dbgt ("[%s] new command [%s]\n", newcmd->cmd_name, newcmd->cmd->str);
+    dbgt ("[%s] new command [%s]\n", newcmd->cmd_id, newcmd->cmd->str);
     return newcmd;
 }
 
@@ -680,12 +674,12 @@ procman_find_cmd (procman_t *pm, const char *cmd_str)
 }
 
 procman_cmd_t *
-procman_find_cmd_by_id (procman_t *pm, int32_t cmd_id)
+procman_find_cmd_by_id (procman_t *pm, int32_t sheriff_id)
 {
     GList *iter;
     for (iter=pm->commands; iter; iter=iter->next) {
         procman_cmd_t *p = (procman_cmd_t*)iter->data;
-        if (p->cmd_id == cmd_id) return p;
+        if (p->sheriff_id == sheriff_id) return p;
     }
     return NULL;
 }
@@ -697,10 +691,10 @@ procman_cmd_change_str (procman_cmd_t *cmd, const char *cmd_str)
 }
 
 void
-procman_cmd_set_name(procman_cmd_t* cmd, const char* cmd_name)
+procman_cmd_set_name(procman_cmd_t* cmd, const char* cmd_id)
 {
-    g_free(cmd->cmd_name);
-    cmd->cmd_name = g_strdup(cmd_name);
+    g_free(cmd->cmd_id);
+    cmd->cmd_id = g_strdup(cmd_id);
 }
 
 }
