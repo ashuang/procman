@@ -17,24 +17,26 @@ typedef enum {
     PROCMAN_CMD_INVALID
 } procman_cmd_status_t;
 
-typedef struct _procman procman_t;
+struct ProcmanOptions {
+  static ProcmanOptions Default(int argc, char** argv);
 
-typedef struct _procman_params {
-    char config_file[1024];  // the configuration file listing all commands
-
-    char bin_path[1024];  // commands that are not specified as an absolute
+  std::string bin_path;  // commands that are not specified as an absolute
                           // path have this prepended to their path
-    int verbose;
-} procman_params_t;
+  bool verbose;
+};
 
 struct procman_cmd_t {
   procman_cmd_t();
 
+  const std::string& ExecStr() const { return exec_str_; }
+
+  const std::string& Id() const { return cmd_id_; }
+
   int32_t sheriff_id;   // unique to the containing instance of procman_t
 
-  GString *cmd; // the command to execute.  Do not modify directly
+  std::string exec_str_; // the command to execute.  Do not modify directly
 
-  char* cmd_id;  // a user-assigned name for the command.  Do not modify directly
+  std::string cmd_id_;  // a user-assigned name for the command.  Do not modify directly
 
   int pid;      // pid of process when running.  0 otherwise
 
@@ -55,12 +57,15 @@ struct procman_cmd_t {
   void *user;  // use this for application-specific data
 };
 
+struct procman_t {
+  ProcmanOptions options;
+  GList *commands;
+  GHashTable* variables;
+};
 
-void procman_params_init_defaults (procman_params_t *params,
-        int argc, char **argv);
 
 // constructor
-procman_t *procman_create (const procman_params_t *params);
+procman_t *procman_create (const ProcmanOptions& options);
 
 // destructor
 void procman_destroy (procman_t *pm);
@@ -149,9 +154,9 @@ procman_cmd_status_t procman_get_cmd_status (procman_t *pm, procman_cmd_t *cmd);
 void procman_cmd_change_str (procman_cmd_t *cmd, const char *cmd_str);
 
 /**
- * Sets the command name.
+ * Sets the command id.
  */
-void procman_cmd_set_name(procman_cmd_t* cmd, const char* cmd_id);
+void procman_cmd_set_id(procman_cmd_t* cmd, const char* cmd_id);
 
 #define PROCMAN_MAX_MESSAGE_AGE_USEC 60000000LL
 

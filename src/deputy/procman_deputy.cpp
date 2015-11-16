@@ -206,7 +206,7 @@ pipe_data_ready (GIOChannel *source, GIOCondition condition,
         int bytes_read = read (cmd->stdout_fd, buf, sizeof (buf)-1);
         if (bytes_read < 0) {
             snprintf (buf, sizeof (buf), "procman [%s] read: %s (%d)\n",
-                    cmd->cmd->str, strerror (errno), errno);
+                    cmd->ExecStr().c_str(), strerror (errno), errno);
             dbgt (buf);
             transmit_str (&global_pmd, mi->sheriff_id, buf);
         } else if ( bytes_read == 0) {
@@ -220,37 +220,37 @@ pipe_data_ready (GIOChannel *source, GIOCondition condition,
     if (condition & G_IO_ERR) {
         transmit_str (&global_pmd, mi->sheriff_id,
                 "procman deputy: detected G_IO_ERR.\n");
-        dbgt ("G_IO_ERR from [%s]\n", cmd->cmd_id);
+        dbgt ("G_IO_ERR from [%s]\n", cmd->Id().c_str());
         anycondition = 1;
     }
     if (condition & G_IO_HUP) {
         transmit_str (&global_pmd, mi->sheriff_id,
                 "procman deputy: detected G_IO_HUP.  end of output\n");
-        dbgt ("G_IO_HUP from [%s]\n", cmd->cmd_id);
+        dbgt ("G_IO_HUP from [%s]\n", cmd->Id().c_str());
         result = FALSE;
         anycondition = 1;
     }
     if (condition & G_IO_NVAL) {
         transmit_str (&global_pmd, mi->sheriff_id,
                 "procman deputy: detected G_IO_NVAL.  end of output\n");
-        dbgt ("G_IO_NVAL from [%s]\n", cmd->cmd_id);
+        dbgt ("G_IO_NVAL from [%s]\n", cmd->Id().c_str());
         result = FALSE;
         anycondition = 1;
     }
     if (condition & G_IO_PRI) {
         transmit_str (&global_pmd, mi->sheriff_id,
                 "procman deputy: unexpected G_IO_PRI... wtf?\n");
-        dbgt ("G_IO_PRI from [%s]\n", cmd->cmd_id);
+        dbgt ("G_IO_PRI from [%s]\n", cmd->Id().c_str());
         anycondition = 1;
     }
     if (condition & G_IO_OUT) {
         transmit_str (&global_pmd, mi->sheriff_id,
                 "procman deputy: unexpected G_IO_OUT... wtf?\n");
-        dbgt ("G_IO_OUT from [%s]\n", cmd->cmd_id);
+        dbgt ("G_IO_OUT from [%s]\n", cmd->Id().c_str());
         anycondition = 1;
     }
     if (!anycondition) {
-        dbgt ("wtf??? [%s] pipe has condition 0x%X\n", cmd->cmd->str,
+        dbgt ("wtf??? [%s] pipe has condition 0x%X\n", cmd->ExecStr().c_str(),
                 condition);
     }
     return result;
@@ -292,18 +292,18 @@ start_cmd (procman_deputy_t *pmd, procman_cmd_t *cmd, int desired_runid)
 
     status = procman_start_cmd (pmd->pm, cmd);
     if (0 != status) {
-        printf_and_transmit (pmd, 0, "[%s] couldn't start [%s]\n", cmd->cmd_id, cmd->cmd->str);
-        dbgt ("[%s] couldn't start [%s]\n", cmd->cmd_id, cmd->cmd->str);
+        printf_and_transmit (pmd, 0, "[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
+        dbgt ("[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
         maybe_schedule_respawn(pmd, cmd);
         printf_and_transmit (pmd, mi->sheriff_id,
-                "ERROR!  [%s] couldn't start [%s]\n", cmd->cmd_id, cmd->cmd->str);
+                "ERROR!  [%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
         return -1;
     }
 
     // add stdout for this process to IO watch list
     if (mi->stdout_ioc) {
         dbgt ("ERROR: [%s] expected mi->stdout_ioc to be NULL [%s]\n",
-                cmd->cmd_id, cmd->cmd->str);
+                cmd->Id().c_str(), cmd->ExecStr().c_str());
     }
 
     mi->stdout_ioc = g_io_channel_unix_new (cmd->stdout_fd);
@@ -392,7 +392,7 @@ check_for_dead_children (procman_deputy_t *pmd)
 
         // remove ?
         if (mi->remove_requested) {
-            dbgt ("[%s] remove\n", cmd->cmd_id);
+            dbgt ("[%s] remove\n", cmd->Id().c_str());
             // cleanup the private data structure used
             pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) cmd->user;
             free(mi->group);
@@ -515,7 +515,7 @@ transmit_proc_info (procman_deputy_t *s)
     procman_cmd_t *cmd = (procman_cmd_t*)iter->data;
     pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*)cmd->user;
 
-    msg.cmds[i].cmd.exec_str = cmd->cmd->str;
+    msg.cmds[i].cmd.exec_str = (char*) cmd->ExecStr().c_str();
     msg.cmds[i].cmd.command_id = mi->id;
     msg.cmds[i].cmd.group = mi->group;
     msg.cmds[i].cmd.auto_respawn = mi->auto_respawn;
@@ -825,8 +825,8 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
 
         // rename a command?  does not kill a running command, so effect does
         // not apply until command is restarted.
-        if (strcmp (p->cmd->str, cmd_msg->cmd.exec_str)) {
-            dbgt ("[%s] exec str -> [%s]\n", p->cmd_id, cmd_msg->cmd.exec_str);
+        if (strcmp (p->ExecStr().c_str(), cmd_msg->cmd.exec_str)) {
+            dbgt ("[%s] exec str -> [%s]\n", p->Id().c_str(), cmd_msg->cmd.exec_str);
             procman_cmd_change_str (p, cmd_msg->cmd.exec_str);
 
             action_taken = 1;
@@ -837,19 +837,19 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
             dbgt ("[%s] rename -> [%s]\n", mi->id,
                     cmd_msg->cmd.command_id);
             _set_command_id (p, cmd_msg->cmd.command_id);
-            procman_cmd_set_name(p, cmd_msg->cmd.command_id);
+            procman_cmd_set_id(p, cmd_msg->cmd.command_id);
             action_taken = 1;
         }
 
         // has auto-respawn changed?
         if (cmd_msg->cmd.auto_respawn != mi->auto_respawn) {
-            dbgt ("[%s] auto-respawn -> %d\n", p->cmd_id, cmd_msg->cmd.auto_respawn);
+            dbgt ("[%s] auto-respawn -> %d\n", p->Id().c_str(), cmd_msg->cmd.auto_respawn);
             mi->auto_respawn = cmd_msg->cmd.auto_respawn;
         }
 
         // change the group of a command?
         if (strcmp (mi->group, cmd_msg->cmd.group)) {
-            dbgt ("[%s] group -> [%s]\n", p->cmd_id,
+            dbgt ("[%s] group -> [%s]\n", p->Id().c_str(),
                     cmd_msg->cmd.group);
             _set_command_group (p, cmd_msg->cmd.group);
             action_taken = 1;
@@ -857,14 +857,14 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
 
         // change the stop signal of a command?
         if(mi->stop_signal != cmd_msg->cmd.stop_signal) {
-            dbg("[%s] stop signal -> [%d]\n", p->cmd_id,
+            dbg("[%s] stop signal -> [%d]\n", p->Id().c_str(),
                     cmd_msg->cmd.stop_signal);
             _set_command_stop_signal(p, cmd_msg->cmd.stop_signal);
         }
 
         // change the stop time allowed of a command?
         if(mi->stop_time_allowed != cmd_msg->cmd.stop_time_allowed) {
-            dbg("[%s] stop time allowed -> [%f]\n", p->cmd_id,
+            dbg("[%s] stop time allowed -> [%f]\n", p->Id().c_str(),
                     cmd_msg->cmd.stop_time_allowed);
             _set_command_stop_time_allowed(p, cmd_msg->cmd.stop_time_allowed);
         }
@@ -908,11 +908,11 @@ _handle_orders2(procman_deputy_t* s, const procman_lcm_orders_t* orders)
         pmd_cmd_moreinfo_t *mi = (pmd_cmd_moreinfo_t*) p->user;
 
         if (p->pid) {
-            dbgt ("[%s] scheduling removal\n", p->cmd_id);
+            dbgt ("[%s] scheduling removal\n", p->Id().c_str());
             mi->remove_requested = 1;
             stop_cmd (s, p);
         } else {
-            dbgt ("[%s] remove\n", p->cmd_id);
+            dbgt ("[%s] remove\n", p->Id().c_str());
             // cleanup the private data structure used
             free (mi->group);
         free (mi->id);
@@ -1140,14 +1140,8 @@ int main (int argc, char **argv)
 //     sprintf (pmd->hostname + strlen (pmd->hostname), "%d", getpid());
 
      // load config file
-     procman_params_t params;
-     procman_params_init_defaults (&params, argc, argv);
-
-     pmd->pm = procman_create (&params);
-     if (NULL == pmd->pm) {
-         fprintf (stderr, "couldn't create procman_t\n");
-         return 1;
-     }
+     ProcmanOptions options = ProcmanOptions::Default(argc, argv);
+     pmd->pm = procman_create(options);
 
      // convert Unix signals into glib events
      signal_pipe_init();
