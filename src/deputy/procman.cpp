@@ -199,8 +199,7 @@ class VariableExpander {
     const StringStringMap* variables_;
 };
 
-ProcmanOptions ProcmanOptions::Default(int argc, char **argv)
-{
+ProcmanOptions ProcmanOptions::Default(int argc, char **argv) {
   ProcmanOptions result;
 
   // infer the path of procman.  This will be used with execv to start the

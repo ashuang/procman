@@ -50,11 +50,20 @@ struct DeputyCommand {
   int remove_requested;
 };
 
+struct DeputyOptions {
+  static DeputyOptions Defaults();
+
+  std::string name;
+  bool verbose;
+};
+
 class ProcmanDeputy : public QObject {
   Q_OBJECT
 
   public:
-    ProcmanDeputy(QObject* parent = nullptr);
+    ProcmanDeputy(const DeputyOptions& options, QObject* parent = nullptr);
+
+    ~ProcmanDeputy();
 
     void OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::string& channel,
         const procman_lcm::orders_t* orders);
@@ -77,30 +86,40 @@ class ProcmanDeputy : public QObject {
 
     void OnProcessOutputAvailable(DeputyCommand* mi);
 
-    Procman *pm;
-
     lcm::LCM *lcm_;
 
-    std::string hostname;
+    Procman *pm;
 
-    int norders_slm;       // total procman_lcm_orders_t observed Since Last MARK
-    int norders_forme_slm; // total procman_lcm_orders_t for this deputy slm
-    int nstale_orders_slm; // total stale procman_lcm_orders_t for this deputy slm
+  private:
+    void UpdateCpuTimes();
 
-    std::set<std::string> observed_sheriffs_slm; // names of observed sheriffs slm
+    void CheckForDeadChildren();
 
-    int64_t deputy_start_time;
+    void TransmitProcInfo();
+
+    void MaybeScheduleRespawn(DeputyCommand *mi);
+
+    int StartCommand(DeputyCommand* mi, int desired_runid);
+
+    int StopCommand(DeputyCommand* mi);
+
+    void TransmitStr(int sheriff_id, const char* str);
+
+    void PrintfAndTransmit(int sheriff_id, const char *fmt, ...);
+
+    DeputyOptions options_;
+
+    std::string deputy_name_;
+
+    sys_cpu_mem_t cpu_time_[2];
+    float cpu_load_;
+
+    int64_t deputy_start_time_;
+    pid_t deputy_pid_;
+
     lcm::Subscription* discovery_subs_;
-
     lcm::Subscription* info2_subs_;
     lcm::Subscription* orders2_subs_;
-
-    pid_t deputy_pid;
-    sys_cpu_mem_t cpu_time[2];
-    float cpu_load;
-
-    int verbose;
-    int exiting;
 
     QTimer discovery_timer_;
     QTimer one_second_timer_;
@@ -110,6 +129,8 @@ class ProcmanDeputy : public QObject {
     QSocketNotifier* lcm_notifier_;
 
     std::map<ProcmanCommandPtr, DeputyCommand*> commands_;
+
+    bool exiting_;
 };
 
 }  // namespace procman
