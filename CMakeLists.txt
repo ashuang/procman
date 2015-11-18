@@ -1,6 +1,8 @@
-cmake_minimum_required(VERSION 2.6.0)
+cmake_minimum_required(VERSION 2.8.11)
 
 project(procman)
+
+find_package(Qt5Core)
 
 # build LCM types.
 include(cmake/lcmtypes.cmake)

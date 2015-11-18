@@ -1,21 +1,3 @@
-/*
- * MIT DARPA Urban Challenge Team
- *
- * Module Name: procman_deputy
- *
- * Description:
- *
- * The procman_deputy module is a process-management daemon that manages a
- * collection of processes.  It listens for commands over LCM and starts and
- * stops processes according to the commands it receives.  Addditionally, the
- * procman_deputy periodically transmits the state of the processes that it is
- * managing.
- *
- * Maintainer: Albert Huang <albert@csail.mit.edu>
- */
-
-#define _GNU_SOURCE
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -35,20 +17,14 @@
 #include <map>
 #include <set>
 
-#include <glib.h>
-
-#include <lcm/lcm-cpp.hpp>
+#include <QCoreApplication>
+#include <QTimer>
 
 #include <lcmtypes/procman_lcm/output_t.hpp>
-#include <lcmtypes/procman_lcm/discovery_t.hpp>
 
-#include <lcmtypes/procman_lcm/deputy_info_t.hpp>
-#include <lcmtypes/procman_lcm/orders_t.hpp>
-
-#include "procman.hpp"
-#include "procinfo.hpp"
 #include "signal_pipe.hpp"
-#include "lcm_util.hpp"
+
+#include "procman_deputy.hpp"
 
 using procman_lcm::cmd_desired_t;
 using procman_lcm::deputy_info_t;
@@ -104,82 +80,46 @@ static void dbgt (const char *fmt, ...)
     fprintf (stderr, "%s %s", timebuf, buf);
 }
 
-struct ProcmanDeputy;
+ProcmanDeputy::ProcmanDeputy(QObject* parent) :
+  QObject(parent),
+  discovery_timer_(),
+  posix_signal_notifier_(nullptr),
+  lcm_notifier_(nullptr) {
 
-struct DeputyCommand {
-  ProcmanDeputy *deputy;
+}
 
-  ProcmanCommandPtr cmd;
+void ProcmanDeputy::Prepare() {
+  discovery_timer_.setInterval(200);
+  connect(&discovery_timer_, &QTimer::timeout,
+      this, &ProcmanDeputy::OnDiscoveryTimer);
+  discovery_timer_.start();
+  OnDiscoveryTimer();
 
-  // glib handles for IO watches
-  GIOChannel *stdout_ioc;
-  guint stdout_sid;
-  int32_t actual_runid;
-  int32_t should_be_stopped;
+  one_second_timer_.setInterval(1000);
+  connect(&one_second_timer_, &QTimer::timeout,
+      this, &ProcmanDeputy::OnOneSecondTimer);
 
-  proc_cpu_mem_t cpu_time[2];
-  float cpu_usage;
+  // periodically check memory usage
+  introspection_timer_.setInterval(120000);
+  connect(&introspection_timer_, &QTimer::timeout,
+      this, &ProcmanDeputy::OnIntrospectionTimer);
 
-  std::string group_;
-  int auto_respawn;
-  guint respawn_timeout_id;
-  int64_t last_start_time;
-  int respawn_backoff;
+  posix_signal_notifier_ = new QSocketNotifier(signal_pipe_fd(),
+      QSocketNotifier::Read, this);
+  connect(posix_signal_notifier_, &QSocketNotifier::activated,
+      this, &ProcmanDeputy::OnPosixSignal);
 
-  int stop_signal;
-  float stop_time_allowed;
-
-  int num_kills_sent;
-  int64_t first_kill_time;
-  int remove_requested;
-};
-
-struct ProcmanDeputy {
-  void OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::string& channel,
-      const orders_t* orders);
-  void DiscoveryReceived(const lcm::ReceiveBuffer* rbuf,
-      const std::string& channel, const discovery_t* msg);
-  void InfoReceived(const lcm::ReceiveBuffer* rbuf,
-      const std::string& channel, const deputy_info_t* msg);
-
-  Procman *pm;
-
-  lcm::LCM *lcm_;
-
-  std::string hostname;
-
-  GMainLoop * mainloop;
-
-  int norders_slm;       // total procman_lcm_orders_t observed Since Last MARK
-  int norders_forme_slm; // total procman_lcm_orders_t for this deputy slm
-  int nstale_orders_slm; // total stale procman_lcm_orders_t for this deputy slm
-
-  std::set<std::string> observed_sheriffs_slm; // names of observed sheriffs slm
-
-  int64_t deputy_start_time;
-  lcm::Subscription* discovery_subs_;
-
-  lcm::Subscription* info2_subs_;
-  lcm::Subscription* orders2_subs_;
-
-  pid_t deputy_pid;
-  sys_cpu_mem_t cpu_time[2];
-  float cpu_load;
-
-  int verbose;
-  int exiting;
-
-  std::map<ProcmanCommandPtr, DeputyCommand*> commands_;
-};
+  lcm_notifier_ = new QSocketNotifier(lcm_->getFileno(),
+      QSocketNotifier::Read, this);
+  connect(lcm_notifier_, &QSocketNotifier::activated,
+      [this]() { lcm_->handle(); });
+}
 
 // make this global so that the signal handler can access it
 static ProcmanDeputy* g_pmd;
 
 static void
 transmit_proc_info (ProcmanDeputy *s);
-
-static gboolean
-on_scheduled_respawn(DeputyCommand* mi);
 
 static void
 transmit_str (ProcmanDeputy *pmd, int sheriff_id, const char * str)
@@ -216,76 +156,31 @@ printf_and_transmit (ProcmanDeputy *pmd, int sheriff_id, const char *fmt, ...) {
 }
 
 // invoked when a child process writes something to its stdout/stderr fd
-static int
-pipe_data_ready (GIOChannel *source, GIOCondition condition,
-        DeputyCommand *mi)
-{
+void ProcmanDeputy::OnProcessOutputAvailable(DeputyCommand* mi) {
   ProcmanCommandPtr cmd = mi->cmd;
-    int result = TRUE;
-    int anycondition = 0;
+  int anycondition = 0;
 
-    if (condition & G_IO_IN) {
-        char buf[1024];
-        int bytes_read = read (cmd->StdoutFd(), buf, sizeof (buf)-1);
-        if (bytes_read < 0) {
-            snprintf (buf, sizeof (buf), "procman [%s] read: %s (%d)\n",
-                    cmd->ExecStr().c_str(), strerror (errno), errno);
-            dbgt (buf);
-            transmit_str (g_pmd, cmd->SheriffId(), buf);
-        } else if ( bytes_read == 0) {
-            dbgt ("zero byte read\n");
-        } else {
-            buf[bytes_read] = '\0';
-            transmit_str (g_pmd, cmd->SheriffId(), buf);
-        }
-        anycondition = 1;
-    }
-    if (condition & G_IO_ERR) {
-        transmit_str (g_pmd, cmd->SheriffId(),
-                "procman deputy: detected G_IO_ERR.\n");
-        dbgt ("G_IO_ERR from [%s]\n", cmd->Id().c_str());
-        anycondition = 1;
-    }
-    if (condition & G_IO_HUP) {
-        transmit_str (g_pmd, cmd->SheriffId(),
-                "procman deputy: detected G_IO_HUP.  end of output\n");
-        dbgt ("G_IO_HUP from [%s]\n", cmd->Id().c_str());
-        result = FALSE;
-        anycondition = 1;
-    }
-    if (condition & G_IO_NVAL) {
-        transmit_str (g_pmd, cmd->SheriffId(),
-                "procman deputy: detected G_IO_NVAL.  end of output\n");
-        dbgt ("G_IO_NVAL from [%s]\n", cmd->Id().c_str());
-        result = FALSE;
-        anycondition = 1;
-    }
-    if (condition & G_IO_PRI) {
-        transmit_str (g_pmd, cmd->SheriffId(),
-                "procman deputy: unexpected G_IO_PRI... wtf?\n");
-        dbgt ("G_IO_PRI from [%s]\n", cmd->Id().c_str());
-        anycondition = 1;
-    }
-    if (condition & G_IO_OUT) {
-        transmit_str (g_pmd, cmd->SheriffId(),
-                "procman deputy: unexpected G_IO_OUT... wtf?\n");
-        dbgt ("G_IO_OUT from [%s]\n", cmd->Id().c_str());
-        anycondition = 1;
-    }
-    if (!anycondition) {
-        dbgt ("wtf??? [%s] pipe has condition 0x%X\n", cmd->ExecStr().c_str(),
-                condition);
-    }
-    return result;
+  char buf[1024];
+  int bytes_read = read(cmd->StdoutFd(), buf, sizeof (buf)-1);
+  if (bytes_read < 0) {
+    snprintf (buf, sizeof (buf), "procman [%s] read: %s (%d)\n",
+        cmd->ExecStr().c_str(), strerror (errno), errno);
+    dbgt (buf);
+    transmit_str (g_pmd, cmd->SheriffId(), buf);
+  } else {
+    // TODO buffer output
+    buf[bytes_read] = '\0';
+    transmit_str(this, cmd->SheriffId(), buf);
+  }
+  anycondition = 1;
 }
 
 static void
 maybe_schedule_respawn(ProcmanDeputy *pmd, DeputyCommand *mi)
 {
-    if(mi->auto_respawn && !mi->should_be_stopped && !pmd->exiting) {
-        mi->respawn_timeout_id =
-            g_timeout_add(mi->respawn_backoff, (GSourceFunc)on_scheduled_respawn, mi);
-    }
+  if(mi->auto_respawn && !mi->should_be_stopped && !pmd->exiting) {
+    mi->respawn_timer_.start(mi->respawn_backoff);
+  }
 }
 
 static int
@@ -299,16 +194,17 @@ start_cmd (ProcmanDeputy *pmd, DeputyCommand* mi, int desired_runid)
 
     int status;
     mi->should_be_stopped = 0;
-    mi->respawn_timeout_id = 0;
+    mi->respawn_timer_.stop();
+
     // update the respawn backoff counter, to throttle how quickly a
     // process respawns
     int ms_since_started = (timestamp_now() - mi->last_start_time) / 1000;
     if(ms_since_started < MAX_RESPAWN_DELAY_MS) {
-        mi->respawn_backoff = MIN(MAX_RESPAWN_DELAY_MS,
+        mi->respawn_backoff = std::min(MAX_RESPAWN_DELAY_MS,
                 mi->respawn_backoff * RESPAWN_BACKOFF_RATE);
     } else {
         int d = ms_since_started / MAX_RESPAWN_DELAY_MS;
-        mi->respawn_backoff = MAX(MIN_RESPAWN_DELAY_MS,
+        mi->respawn_backoff = std::max(MIN_RESPAWN_DELAY_MS,
                 mi->respawn_backoff >> d);
     }
     mi->last_start_time = timestamp_now();
@@ -323,17 +219,11 @@ start_cmd (ProcmanDeputy *pmd, DeputyCommand* mi, int desired_runid)
         return -1;
     }
 
-    // add stdout for this process to IO watch list
-    if (mi->stdout_ioc) {
-        dbgt ("ERROR: [%s] expected mi->stdout_ioc to be NULL [%s]\n",
-                cmd->Id().c_str(), cmd->ExecStr().c_str());
-    }
-
-    mi->stdout_ioc = g_io_channel_unix_new (cmd->StdoutFd());
-    g_io_channel_set_encoding (mi->stdout_ioc, NULL, NULL);
-    fcntl (cmd->StdoutFd(), F_SETFL, O_NONBLOCK);
-    mi->stdout_sid = g_io_add_watch (mi->stdout_ioc,
-            G_IO_IN, (GIOFunc)pipe_data_ready, mi);
+    mi->stdout_notifier = new QSocketNotifier(cmd->StdoutFd(),
+        QSocketNotifier::Read, pmd);
+    fcntl(cmd->StdoutFd(), F_SETFL, O_NONBLOCK);
+    pmd->connect(mi->stdout_notifier, &QSocketNotifier::activated,
+        std::bind(&ProcmanDeputy::OnProcessOutputAvailable, pmd, mi));
 
     mi->actual_runid = desired_runid;
     mi->num_kills_sent = 0;
@@ -350,8 +240,9 @@ stop_cmd (ProcmanDeputy *pmd, DeputyCommand* mi)
 
     mi->should_be_stopped = 1;
 
-    if(mi->respawn_timeout_id)
-        g_source_remove(mi->respawn_timeout_id);
+    if (mi->respawn_timer_.isActive()) {
+      mi->respawn_timer_.stop();
+    }
 
     int64_t now = timestamp_now();
     int64_t sigkill_time = mi->first_kill_time + (int64_t)(mi->stop_time_allowed * 1000000);
@@ -391,7 +282,7 @@ check_for_dead_children (ProcmanDeputy *pmd)
     };
     status = poll (&pfd, 1, 0);
     if (pfd.revents & POLLIN) {
-      pipe_data_ready (NULL, G_IO_IN, mi);
+      pmd->OnProcessOutputAvailable(mi);
     }
 
     // did the child terminate with a signal?
@@ -407,13 +298,9 @@ check_for_dead_children (ProcmanDeputy *pmd)
       }
     }
 
-    // cleanup the glib hooks if necessary
-    if (mi->stdout_ioc) {
-      // detach from the glib event loop
-      g_io_channel_unref (mi->stdout_ioc);
-      g_source_remove (mi->stdout_sid);
-      mi->stdout_ioc = NULL;
-      mi->stdout_sid = 0;
+    if (mi->stdout_notifier) {
+      delete mi->stdout_notifier;
+      mi->stdout_notifier = nullptr;
 
       pmd->pm->CloseDeadPipes(cmd);
     }
@@ -433,70 +320,19 @@ check_for_dead_children (ProcmanDeputy *pmd)
   }
 }
 
-static gboolean
-on_quit_timeout(ProcmanDeputy* pmd)
-{
-  for (auto& item : pmd->commands_) {
+void ProcmanDeputy::OnQuitTimer() {
+  for (auto& item : commands_) {
     DeputyCommand* mi = item.second;
     ProcmanCommandPtr cmd = item.first;
     if (cmd->Pid()) {
-      pmd->pm->KillCommmand(cmd, SIGKILL);
+      pm->KillCommmand(cmd, SIGKILL);
     }
     delete mi;
-    pmd->pm->RemoveCommand(cmd);
+    pm->RemoveCommand(cmd);
   }
 
   dbgt ("stopping deputy main loop\n");
-  g_main_loop_quit (pmd->mainloop);
-  return FALSE;
-}
-
-static void
-glib_handle_signal (int signal, ProcmanDeputy *pmd) {
-    if (signal == SIGCHLD) {
-        // a child process died.  check to see which one, and cleanup its
-        // remains.
-        check_for_dead_children (pmd);
-    } else {
-        // quit was requested.  kill all processes and quit
-        dbgt ("received signal %d (%s).  stopping all processes\n", signal,
-                strsignal (signal));
-
-        float max_stop_time_allowed = 1;
-
-        // first, send everything a SIGINT to give them a chance to exit
-        // cleanly.
-        for (auto& item : pmd->commands_) {
-          DeputyCommand* mi = item.second;
-          ProcmanCommandPtr cmd = item.first;
-          if (cmd->Pid()) {
-            pmd->pm->KillCommmand(cmd, mi->stop_signal);
-            if(mi->stop_time_allowed > max_stop_time_allowed)
-              max_stop_time_allowed = mi->stop_time_allowed;
-          }
-        }
-        pmd->exiting = 1;
-
-        // set a timer, after which everything will be more forcefully
-        // terminated.
-        g_timeout_add((int)(max_stop_time_allowed * 1000),
-                (GSourceFunc)on_quit_timeout, pmd);
-    }
-
-    if(pmd->exiting) {
-        // if we're exiting, and all child processes are dead, then exit.
-        bool all_dead = true;
-        for (ProcmanCommandPtr cmd : pmd->pm->GetCommands()) {
-            if (cmd->Pid()) {
-                all_dead = false;
-                break;
-            }
-        }
-        if(all_dead) {
-            dbg("all child processes are dead, exiting.\n");
-            g_main_loop_quit(pmd->mainloop);
-        }
-    }
+  QCoreApplication::instance()->quit();
 }
 
 static void
@@ -608,57 +444,96 @@ update_cpu_times (ProcmanDeputy *s)
     memcpy (&s->cpu_time[0], &s->cpu_time[1], sizeof (sys_cpu_mem_t));
 }
 
-static gboolean
-on_scheduled_respawn(DeputyCommand* mi)
-{
-    if(mi->auto_respawn && !mi->should_be_stopped && !mi->deputy->exiting) {
-        start_cmd(mi->deputy, mi, mi->actual_runid);
-    }
-    return FALSE;
+void ProcmanDeputy::OnOneSecondTimer() {
+  update_cpu_times (this);
+  transmit_proc_info (this);
 }
 
-static gboolean
-one_second_timeout (ProcmanDeputy *pmd)
-{
-    update_cpu_times (pmd);
-    transmit_proc_info (pmd);
-    return TRUE;
+void ProcmanDeputy::OnIntrospectionTimer() {
+  int mypid = getpid();
+  proc_cpu_mem_t pinfo;
+  int status = procinfo_read_proc_cpu_mem (mypid, &pinfo);
+  if(0 != status)  {
+    perror("introspection_timeout - procinfo_read_proc_cpu_mem");
+  }
+
+  int nrunning = 0;
+  for (ProcmanCommandPtr cmd : pm->GetCommands()) {
+    if (cmd->Pid()) {
+      nrunning++;
+    }
+  }
+
+  dbgt ("MARK - rss: %" PRId64 " kB vsz: %" PRId64
+      " kB procs: %d (%d alive)\n",
+      pinfo.rss / 1024, pinfo.vsize / 1024,
+      (int) commands_.size(),
+      nrunning
+      );
+  //    dbgt ("       orders: %d forme: %d (%d stale) sheriffs: %d\n",
+  //            pmd->norders_slm, pmd->norders_forme_slm, pmd->nstale_orders_slm,
+  //            g_list_length (pmd->observed_sheriffs_slm));
+
+  norders_slm = 0;
+  norders_forme_slm = 0;
+  nstale_orders_slm = 0;
+
+  observed_sheriffs_slm.clear();
 }
 
-static gboolean
-introspection_timeout (ProcmanDeputy *pmd)
-{
-    int mypid = getpid();
-    proc_cpu_mem_t pinfo;
-    int status = procinfo_read_proc_cpu_mem (mypid, &pinfo);
-    if(0 != status)  {
-        perror("introspection_timeout - procinfo_read_proc_cpu_mem");
+void ProcmanDeputy::OnPosixSignal() {
+  int signum;
+  int status = read(signal_pipe_fd(), &signum, sizeof(int));
+  if (status != sizeof(int)) {
+    return;
+  }
+
+  if (signum == SIGCHLD) {
+    // a child process died.  check to see which one, and cleanup its
+    // remains.
+    check_for_dead_children(this);
+  } else {
+    // quit was requested.  kill all processes and quit
+    dbgt ("received signal %d (%s).  stopping all processes\n", signum,
+        strsignal (signum));
+
+    float max_stop_time_allowed = 1;
+
+    // first, send everything a SIGINT to give them a chance to exit
+    // cleanly.
+    for (auto& item : commands_) {
+      DeputyCommand* mi = item.second;
+      ProcmanCommandPtr cmd = item.first;
+      if (cmd->Pid()) {
+        pm->KillCommmand(cmd, mi->stop_signal);
+        if(mi->stop_time_allowed > max_stop_time_allowed)
+          max_stop_time_allowed = mi->stop_time_allowed;
+      }
     }
+    exiting = 1;
 
-    int nrunning = 0;
-    for (ProcmanCommandPtr cmd : pmd->pm->GetCommands()) {
-        if (cmd->Pid()) {
-          nrunning++;
-        }
+    // set a timer, after which everything will be more forcefully
+    // terminated.
+    QTimer* quit_timer = new QTimer(this);
+    quit_timer->setSingleShot(true);
+    quit_timer->start((int)(max_stop_time_allowed * 1000));
+    connect(quit_timer, &QTimer::timeout, this, &ProcmanDeputy::OnQuitTimer);
+  }
+
+  if(exiting) {
+    // if we're exiting, and all child processes are dead, then exit.
+    bool all_dead = true;
+    for (ProcmanCommandPtr cmd : pm->GetCommands()) {
+      if (cmd->Pid()) {
+        all_dead = false;
+        break;
+      }
     }
-
-    dbgt ("MARK - rss: %" PRId64 " kB vsz: %" PRId64
-            " kB procs: %d (%d alive)\n",
-            pinfo.rss / 1024, pinfo.vsize / 1024,
-            (int) pmd->commands_.size(),
-            nrunning
-           );
-//    dbgt ("       orders: %d forme: %d (%d stale) sheriffs: %d\n",
-//            pmd->norders_slm, pmd->norders_forme_slm, pmd->nstale_orders_slm,
-//            g_list_length (pmd->observed_sheriffs_slm));
-
-    pmd->norders_slm = 0;
-    pmd->norders_forme_slm = 0;
-    pmd->nstale_orders_slm = 0;
-
-    pmd->observed_sheriffs_slm.clear();
-
-    return TRUE;
+    if(all_dead) {
+      dbg("all child processes are dead, exiting.\n");
+      QCoreApplication::instance()->quit();
+    }
+  }
 }
 
 static const cmd_desired_t *
@@ -702,7 +577,6 @@ _set_command_stop_time_allowed (DeputyCommand* mi, float stop_time_allowed)
 static void
 _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
 {
-    const GList *iter = NULL;
     pmd->norders_slm ++;
 
     // ignore orders if we're exiting
@@ -764,7 +638,7 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
             if (pmd->verbose) dbgt ("adding new process (%s)\n", cmd_msg->cmd.exec_str.c_str());
             cmd = pmd->pm->AddCommand(cmd_msg->cmd.exec_str, cmd_msg->cmd.command_id);
 
-            // allocate a private data structure for glib info
+            // allocate a private data structure
             mi = new DeputyCommand();
             mi->deputy = pmd;
             mi->group_ = cmd_msg->cmd.group;
@@ -773,7 +647,16 @@ _handle_orders2(ProcmanDeputy* pmd, const orders_t* orders)
             mi->stop_time_allowed = cmd_msg->cmd.stop_time_allowed;
             mi->last_start_time = 0;
             mi->respawn_backoff = MIN_RESPAWN_DELAY_MS;
-            mi->respawn_timeout_id = 0;
+            mi->stdout_notifier = nullptr;
+
+            mi->respawn_timer_.setSingleShot(true);
+            QObject::connect(&mi->respawn_timer_, &QTimer::timeout,
+                [mi]() { 
+                if(mi->auto_respawn && !mi->should_be_stopped && !mi->deputy->exiting) {
+                start_cmd(mi->deputy, mi, mi->actual_runid);
+                }
+                });
+
             mi->cmd = cmd;
             pmd->commands_[cmd] = mi;
             action_taken = 1;
@@ -924,41 +807,31 @@ ProcmanDeputy::InfoReceived(const lcm::ReceiveBuffer* rbuf,
   }
 }
 
-static gboolean
-discovery_timeout(ProcmanDeputy* pmd)
-{
-    int64_t now = timestamp_now();
-    if(now < pmd->deputy_start_time + DISCOVERY_TIME_MS * 1000)
-    {
-        // publish a discover message to check for conflicting deputies
-        discovery_t msg;
-        msg.utime = now;
-        msg.host = pmd->hostname;
-        msg.nonce = pmd->deputy_pid;
-        pmd->lcm_->publish("PM_DISCOVER", &msg);
-        return TRUE;
-    } else {
-        // discovery period is over.
+void ProcmanDeputy::OnDiscoveryTimer() {
+  int64_t now = timestamp_now();
+  if(now < deputy_start_time + DISCOVERY_TIME_MS * 1000) {
+    // publish a discover message to check for conflicting deputies
+    discovery_t msg;
+    msg.utime = now;
+    msg.host = hostname;
+    msg.nonce = deputy_pid;
+    lcm_->publish("PM_DISCOVER", &msg);
+  } else {
+    // discovery period is over.
 
-        // Adjust subscriptions
-        pmd->lcm_->unsubscribe(pmd->info2_subs_);
-        pmd->info2_subs_ = NULL;
+    // Adjust subscriptions
+    lcm_->unsubscribe(info2_subs_);
+    info2_subs_ = NULL;
 
-//        pmd->lcm_->unsubscribe(pmd->discovery_subs);
-//        pmd->discovery_subs = NULL;
-//
-//        pmd->discovery_subs = pmd->lcm_->subscribe("PM_DISCOVER",
-//            &ProcmanDeputy::DiscoveryReceived, pmd);
+    orders2_subs_ = lcm_->subscribe("PM_ORDERS",
+        &ProcmanDeputy::OrdersReceived, this);
 
-        pmd->orders2_subs_ = pmd->lcm_->subscribe("PM_ORDERS",
-                &ProcmanDeputy::OrdersReceived, pmd);
+    // start the timer to periodically transmit status information
+    one_second_timer_.start();
+    OnOneSecondTimer();
 
-        // setup a timer to periodically transmit status information
-        g_timeout_add(1000, (GSourceFunc) one_second_timeout, pmd);
-
-        one_second_timeout(pmd);
-        return FALSE;
-    }
+    discovery_timer_.stop();
+  }
 }
 
 static void usage()
@@ -1065,11 +938,7 @@ int main (int argc, char **argv)
      pmd->deputy_start_time = timestamp_now();
      pmd->deputy_pid = getpid();
 
-     pmd->mainloop = g_main_loop_new (NULL, FALSE);
-     if (!pmd->mainloop) {
-         fprintf (stderr, "Error: Failed to create glib mainloop\n");
-         return 1;
-     }
+     QCoreApplication app(argc, argv);
 
      // set deputy hostname to the system hostname
      if (!hostname_override.empty()) {
@@ -1085,18 +954,13 @@ int main (int argc, char **argv)
      ProcmanOptions options = ProcmanOptions::Default(argc, argv);
      pmd->pm = new Procman(options);
 
-     // convert Unix signals into glib events
+     // convert Unix signals into file descriptor writes
      signal_pipe_init();
-     signal_pipe_add_signal (SIGINT);
-     signal_pipe_add_signal (SIGHUP);
-     signal_pipe_add_signal (SIGQUIT);
-     signal_pipe_add_signal (SIGTERM);
-     signal_pipe_add_signal (SIGCHLD);
-     signal_pipe_attach_glib ((signal_pipe_glib_handler_t) glib_handle_signal,
-             pmd);
-
-     // setup LCM handler
-     lcmu_glib_mainloop_attach_lcm (pmd->lcm_->getUnderlyingLCM());
+     signal_pipe_add_signal(SIGINT);
+     signal_pipe_add_signal(SIGHUP);
+     signal_pipe_add_signal(SIGQUIT);
+     signal_pipe_add_signal(SIGTERM);
+     signal_pipe_add_signal(SIGCHLD);
 
      pmd->info2_subs_ = pmd->lcm_->subscribe("PM_INFO",
          &ProcmanDeputy::InfoReceived, pmd);
@@ -1104,24 +968,14 @@ int main (int argc, char **argv)
      pmd->discovery_subs_ = pmd->lcm_->subscribe("PM_DISCOVER",
          &ProcmanDeputy::DiscoveryReceived, pmd);
 
-     // periodically publish a discovery message on startup.
-     g_timeout_add(200, (GSourceFunc)discovery_timeout, pmd);
-     discovery_timeout(pmd);
+     pmd->Prepare();
 
-     // periodically check memory usage
-     g_timeout_add (120000, (GSourceFunc) introspection_timeout, pmd);
-
-     // go!
-     g_main_loop_run (pmd->mainloop);
-
-     lcmu_glib_mainloop_detach_lcm (pmd->lcm_->getUnderlyingLCM());
+     int app_status = app.exec();
 
      // cleanup
      signal_pipe_cleanup();
 
      delete pmd->pm;
-
-     g_main_loop_unref (pmd->mainloop);
 
      // unsubscribe
      if(pmd->orders2_subs_) {
@@ -1140,5 +994,5 @@ int main (int argc, char **argv)
 
      delete pmd;
 
-     return 0;
+     return app_status;
 }
