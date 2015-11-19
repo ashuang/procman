@@ -19,34 +19,7 @@
 
 namespace procman {
 
-class ProcmanDeputy;
-
-struct DeputyCommand {
-  ProcmanCommandPtr cmd;
-
-  QSocketNotifier* stdout_notifier;
-
-  int32_t actual_runid;
-  int32_t should_be_stopped;
-
-  proc_cpu_mem_t cpu_time[2];
-  float cpu_usage;
-
-  std::string group_;
-  int auto_respawn;
-
-  QTimer respawn_timer_;
-
-  int64_t last_start_time;
-  int respawn_backoff;
-
-  int stop_signal;
-  float stop_time_allowed;
-
-  int num_kills_sent;
-  int64_t first_kill_time;
-  int remove_requested;
-};
+struct DeputyCommand;
 
 struct DeputyOptions {
   static DeputyOptions Defaults();
@@ -113,9 +86,9 @@ class ProcmanDeputy : public QObject {
     int64_t deputy_start_time_;
     pid_t deputy_pid_;
 
-    lcm::Subscription* discovery_subs_;
-    lcm::Subscription* info2_subs_;
-    lcm::Subscription* orders2_subs_;
+    lcm::Subscription* discovery_sub_;
+    lcm::Subscription* info_sub_;
+    lcm::Subscription* orders_sub_;
 
     QTimer discovery_timer_;
     QTimer one_second_timer_;

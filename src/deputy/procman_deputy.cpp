@@ -1,19 +1,19 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <libgen.h>
-#include <sys/poll.h>
-#include <sys/types.h>
-#include <sys/wait.h>
 #include <signal.h>
 #include <stdarg.h>
-#include <time.h>
-#include <sys/time.h>
 #include <inttypes.h>
-#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/poll.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
 
 #include <map>
 #include <set>
@@ -79,6 +79,38 @@ static void dbgt (const char *fmt, ...) {
   fprintf (stderr, "%s %s", timebuf, buf);
 }
 
+struct DeputyCommand {
+  ProcmanCommandPtr cmd;
+
+  QSocketNotifier* stdout_notifier;
+
+  // Each time the command is started, it's assigned a runid. The main purpose
+  // of runid is to enable 
+  int32_t actual_runid;
+
+  bool should_be_running;
+
+  proc_cpu_mem_t cpu_time[2];
+  float cpu_usage;
+
+  std::string group;
+  bool auto_respawn;
+
+  QTimer respawn_timer;
+
+  int64_t last_start_time;
+  int respawn_backoff_ms;
+
+  int stop_signal;
+  float stop_time_allowed;
+
+  int num_kills_sent;
+  int64_t first_kill_time;
+
+  // If true, the command should be stopped and removed from the deputy.
+  bool remove_requested;
+};
+
 DeputyOptions DeputyOptions::Defaults() {
   DeputyOptions result;
 
@@ -95,9 +127,9 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options, QObject* parent) :
   QObject(parent),
   options_(options),
   deputy_name_(options.name),
-  discovery_subs_(nullptr),
-  info2_subs_(nullptr),
-  orders2_subs_(nullptr),
+  discovery_sub_(nullptr),
+  info_sub_(nullptr),
+  orders_sub_(nullptr),
   discovery_timer_(),
   posix_signal_notifier_(nullptr),
   lcm_notifier_(nullptr) {
@@ -112,14 +144,15 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options, QObject* parent) :
   }
 
   // Setup initial LCM subscriptions
-  info2_subs_ = lcm_->subscribe("PM_INFO", &ProcmanDeputy::InfoReceived, this);
+  info_sub_ = lcm_->subscribe("PM_INFO", &ProcmanDeputy::InfoReceived, this);
 
-  discovery_subs_ = lcm_->subscribe("PM_DISCOVER",
+  discovery_sub_ = lcm_->subscribe("PM_DISCOVER",
       &ProcmanDeputy::DiscoveryReceived, this);
 
   // Setup Qt timers
 
-  // TODO
+  // When the deputy is first created, periodically send out discovery messages
+  // to see what other procman deputy processes are active
   discovery_timer_.setInterval(200);
   connect(&discovery_timer_, &QTimer::timeout,
       this, &ProcmanDeputy::OnDiscoveryTimer);
@@ -149,14 +182,14 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options, QObject* parent) :
 
 ProcmanDeputy::~ProcmanDeputy() {
   // unsubscribe
-  if(orders2_subs_) {
-    lcm_->unsubscribe(orders2_subs_);
+  if(orders_sub_) {
+    lcm_->unsubscribe(orders_sub_);
   }
-  if(info2_subs_) {
-    lcm_->unsubscribe(info2_subs_);
+  if(info_sub_) {
+    lcm_->unsubscribe(info_sub_);
   }
-  if(discovery_subs_) {
-    lcm_->unsubscribe(discovery_subs_);
+  if(discovery_sub_) {
+    lcm_->unsubscribe(discovery_sub_);
   }
   delete lcm_;
   delete pm_;
@@ -214,66 +247,68 @@ void ProcmanDeputy::OnProcessOutputAvailable(DeputyCommand* mi) {
 }
 
 void ProcmanDeputy::MaybeScheduleRespawn(DeputyCommand *mi) {
-  if(mi->auto_respawn && !mi->should_be_stopped && !exiting_) {
-    mi->respawn_timer_.start(mi->respawn_backoff);
+  if(mi->auto_respawn && mi->should_be_running) {
+    mi->respawn_timer.start(mi->respawn_backoff_ms);
   }
 }
 
 int ProcmanDeputy::StartCommand(DeputyCommand* mi, int desired_runid) {
-    if(exiting_) {
-        return -1;
-    }
+  if(exiting_) {
+    return -1;
+  }
 
-    ProcmanCommandPtr cmd = mi->cmd;
+  ProcmanCommandPtr cmd = mi->cmd;
 
-    int status;
-    mi->should_be_stopped = 0;
-    mi->respawn_timer_.stop();
+  int status;
+  mi->should_be_running = true;
+  mi->respawn_timer.stop();
 
-    // update the respawn backoff counter, to throttle how quickly a
-    // process respawns
-    int ms_since_started = (timestamp_now() - mi->last_start_time) / 1000;
-    if(ms_since_started < MAX_RESPAWN_DELAY_MS) {
-        mi->respawn_backoff = std::min(MAX_RESPAWN_DELAY_MS,
-                mi->respawn_backoff * RESPAWN_BACKOFF_RATE);
-    } else {
-        int d = ms_since_started / MAX_RESPAWN_DELAY_MS;
-        mi->respawn_backoff = std::max(MIN_RESPAWN_DELAY_MS,
-                mi->respawn_backoff >> d);
-    }
-    mi->last_start_time = timestamp_now();
+  // update the respawn backoff counter, to throttle how quickly a
+  // process respawns
+  int ms_since_started = (timestamp_now() - mi->last_start_time) / 1000;
+  if(ms_since_started < MAX_RESPAWN_DELAY_MS) {
+    mi->respawn_backoff_ms = std::min(MAX_RESPAWN_DELAY_MS,
+        mi->respawn_backoff_ms * RESPAWN_BACKOFF_RATE);
+  } else {
+    int d = ms_since_started / MAX_RESPAWN_DELAY_MS;
+    mi->respawn_backoff_ms = std::max(MIN_RESPAWN_DELAY_MS,
+        mi->respawn_backoff_ms >> d);
+  }
+  mi->last_start_time = timestamp_now();
 
-    status = pm_->StartCommand(cmd);
-    if (0 != status) {
-        PrintfAndTransmit(0, "[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
-        dbgt ("[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
-        MaybeScheduleRespawn(mi);
-        PrintfAndTransmit(cmd->SheriffId(),
-                "ERROR!  [%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
-        return -1;
-    }
+  status = pm_->StartCommand(cmd);
+  if (0 != status) {
+    PrintfAndTransmit(0, "[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
+    dbgt ("[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
+    MaybeScheduleRespawn(mi);
+    PrintfAndTransmit(cmd->SheriffId(),
+        "ERROR!  [%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
+    return -1;
+  }
 
-    mi->stdout_notifier = new QSocketNotifier(cmd->StdoutFd(),
-        QSocketNotifier::Read, this);
-    fcntl(cmd->StdoutFd(), F_SETFL, O_NONBLOCK);
-    connect(mi->stdout_notifier, &QSocketNotifier::activated,
-        std::bind(&ProcmanDeputy::OnProcessOutputAvailable, this, mi));
+  mi->stdout_notifier = new QSocketNotifier(cmd->StdoutFd(),
+      QSocketNotifier::Read, this);
+  fcntl(cmd->StdoutFd(), F_SETFL, O_NONBLOCK);
+  connect(mi->stdout_notifier, &QSocketNotifier::activated,
+      std::bind(&ProcmanDeputy::OnProcessOutputAvailable, this, mi));
 
-    mi->actual_runid = desired_runid;
-    mi->num_kills_sent = 0;
-    mi->first_kill_time = 0;
-    return 0;
+  mi->actual_runid = desired_runid;
+  mi->num_kills_sent = 0;
+  mi->first_kill_time = 0;
+  return 0;
 }
 
 int ProcmanDeputy::StopCommand(DeputyCommand* mi) {
   ProcmanCommandPtr cmd = mi->cmd;
 
-  if (!cmd->Pid()) return 0;
+  if (!cmd->Pid()) {
+    return 0;
+  }
 
-  mi->should_be_stopped = 1;
+  mi->should_be_running = false;
 
-  if (mi->respawn_timer_.isActive()) {
-    mi->respawn_timer_.stop();
+  if (mi->respawn_timer.isActive()) {
+    mi->respawn_timer.stop();
   }
 
   int64_t now = timestamp_now();
@@ -389,7 +424,7 @@ void ProcmanDeputy::TransmitProcInfo() {
 
     msg.cmds[cmd_index].cmd.exec_str = cmd->ExecStr();
     msg.cmds[cmd_index].cmd.command_id = cmd->Id();
-    msg.cmds[cmd_index].cmd.group = mi->group_;
+    msg.cmds[cmd_index].cmd.group = mi->group;
     msg.cmds[cmd_index].cmd.auto_respawn = mi->auto_respawn;
     msg.cmds[cmd_index].cmd.stop_signal = mi->stop_signal;
     msg.cmds[cmd_index].cmd.stop_time_allowed = mi->stop_time_allowed;
@@ -521,13 +556,7 @@ void ProcmanDeputy::OnPosixSignal() {
     // first, send everything a SIGINT to give them a chance to exit
     // cleanly.
     for (auto& item : commands_) {
-      DeputyCommand* mi = item.second;
-      ProcmanCommandPtr cmd = item.first;
-      if (cmd->Pid()) {
-        pm_->KillCommmand(cmd, mi->stop_signal);
-        if(mi->stop_time_allowed > max_stop_time_allowed)
-          max_stop_time_allowed = mi->stop_time_allowed;
-      }
+      StopCommand(item.second);
     }
     exiting_ = true;
 
@@ -631,19 +660,19 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
 
       // allocate a private data structure
       mi = new DeputyCommand();
-      mi->group_ = cmd_msg->cmd.group;
+      mi->group = cmd_msg->cmd.group;
       mi->auto_respawn = cmd_msg->cmd.auto_respawn;
       mi->stop_signal = cmd_msg->cmd.stop_signal;
       mi->stop_time_allowed = cmd_msg->cmd.stop_time_allowed;
       mi->last_start_time = 0;
-      mi->respawn_backoff = MIN_RESPAWN_DELAY_MS;
+      mi->respawn_backoff_ms = MIN_RESPAWN_DELAY_MS;
       mi->stdout_notifier = nullptr;
       pm_->SetCommandSheriffId(cmd, cmd_msg->sheriff_id);
 
-      mi->respawn_timer_.setSingleShot(true);
-      QObject::connect(&mi->respawn_timer_, &QTimer::timeout,
+      mi->respawn_timer.setSingleShot(true);
+      QObject::connect(&mi->respawn_timer, &QTimer::timeout,
           [this, mi]() { 
-          if(mi->auto_respawn && !mi->should_be_stopped && !exiting_) {
+          if(mi->auto_respawn && mi->should_be_running && !exiting_) {
             StartCommand(mi, mi->actual_runid);
           }
           });
@@ -682,10 +711,10 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
     }
 
     // change the group of a command?
-    if (cmd_msg->cmd.group != mi->group_) {
+    if (cmd_msg->cmd.group != mi->group) {
       dbgt ("[%s] group -> [%s]\n", cmd->Id().c_str(),
           cmd_msg->cmd.group.c_str());
-      mi->group_ = cmd_msg->cmd.group;
+      mi->group = cmd_msg->cmd.group;
       action_taken = 1;
     }
 
@@ -703,15 +732,16 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
       mi->stop_time_allowed = cmd_msg->cmd.stop_time_allowed;
     }
 
-    mi->should_be_stopped = cmd_msg->force_quit;
+    mi->should_be_running = !cmd_msg->force_quit;
 
     if (PROCMAN_CMD_STOPPED == cmd_status &&
         (mi->actual_runid != cmd_msg->desired_runid) &&
-        ! mi->should_be_stopped) {
+         mi->should_be_running) {
       StartCommand(mi, cmd_msg->desired_runid);
       action_taken = 1;
     } else if (PROCMAN_CMD_RUNNING == cmd_status &&
-        (mi->should_be_stopped || (cmd_msg->desired_runid != mi->actual_runid))) {
+        ((!mi->should_be_running) ||
+         (cmd_msg->desired_runid != mi->actual_runid))) {
       StopCommand(mi);
       action_taken = 1;
     } else {
@@ -761,7 +791,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
 
 void ProcmanDeputy::DiscoveryReceived(const lcm::ReceiveBuffer* rbuf,
     const std::string& channel, const discovery_t* msg) {
-  int64_t now = timestamp_now();
+  const int64_t now = timestamp_now();
   if(now < deputy_start_time_ + DISCOVERY_TIME_MS * 1000) {
     // received a discovery message while still in discovery mode.  Check to
     // see if it's from a conflicting deputy.
@@ -794,29 +824,28 @@ void ProcmanDeputy::InfoReceived(const lcm::ReceiveBuffer* rbuf,
 }
 
 void ProcmanDeputy::OnDiscoveryTimer() {
-  int64_t now = timestamp_now();
+  const int64_t now = timestamp_now();
   if(now < deputy_start_time_ + DISCOVERY_TIME_MS * 1000) {
-    // publish a discover message to check for conflicting deputies
+    // Publish a discover message to check for conflicting deputies
     discovery_t msg;
     msg.utime = now;
     msg.host = deputy_name_;
     msg.nonce = deputy_pid_;
     lcm_->publish("PM_DISCOVER", &msg);
   } else {
-    // discovery period is over.
+    // Discovery period is over. Stop subscribing to deputy info messages, and
+    // instead start subscribing to sheriff orders.
+    discovery_timer_.stop();
 
-    // Adjust subscriptions
-    lcm_->unsubscribe(info2_subs_);
-    info2_subs_ = NULL;
+    lcm_->unsubscribe(info_sub_);
+    info_sub_ = NULL;
 
-    orders2_subs_ = lcm_->subscribe("PM_ORDERS",
+    orders_sub_ = lcm_->subscribe("PM_ORDERS",
         &ProcmanDeputy::OrdersReceived, this);
 
-    // start the timer to periodically transmit status information
+    // Start the timer to periodically transmit status information
     one_second_timer_.start();
     OnOneSecondTimer();
-
-    discovery_timer_.stop();
   }
 }
 
