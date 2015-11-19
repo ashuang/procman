@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -9,32 +10,26 @@
 
 namespace procman {
 
-#define dbg(args...) fprintf(stderr, args)
-#undef dbg
 #define dbg(args...)
+//#define dbg(args...) fprintf(stderr, args)
 
-typedef struct _signal_pipe {
-  int fds[2];
-} signal_pipe_t;
-
-static signal_pipe_t g_sp;
-static int g_sp_initialized = 0;
+static int g_fds[2] = { -1, -1 };
+static bool g_sp_initialized = false;
 
 int signal_pipe_init () {
   if (g_sp_initialized) {
-    fprintf(stderr, "signal_pipe already initialized!!\n");
-    return -1;
+    return 0;
   }
 
-  if (0 != pipe (g_sp.fds)) {
+  if (0 != pipe(g_fds)) {
     perror("signal_pipe");
     return -1;
   }
 
-  int flags = fcntl (g_sp.fds[1], F_GETFL);
-  fcntl (g_sp.fds[1], F_SETFL, flags | O_NONBLOCK);
+  const int flags = fcntl (g_fds[1], F_GETFL);
+  fcntl (g_fds[1], F_SETFL, flags | O_NONBLOCK);
 
-  g_sp_initialized = 1;
+  g_sp_initialized = true;
 
   dbg("signal_pipe: initialized\n");
   return 0;
@@ -42,9 +37,9 @@ int signal_pipe_init () {
 
 int signal_pipe_cleanup () {
   if (g_sp_initialized) {
-    close (g_sp.fds[0]);
-    close (g_sp.fds[1]);
-    g_sp_initialized = 0;
+    close (g_fds[0]);
+    close (g_fds[1]);
+    g_sp_initialized = false;
     return 0;
   }
 
@@ -54,7 +49,7 @@ int signal_pipe_cleanup () {
 
 static void signal_handler (int signal) {
   dbg("signal_pipe: caught signal %d\n", signal);
-  int wstatus = write (g_sp.fds[1], &signal, sizeof(int));
+  int wstatus = write(g_fds[1], &signal, sizeof(int));
   (void) wstatus;
 }
 
@@ -63,7 +58,10 @@ void signal_pipe_add_signal (int sig) {
 }
 
 int signal_pipe_fd(void) {
-  return g_sp.fds[0];
+  if (!g_sp_initialized) {
+    signal_pipe_init();
+  }
+  return g_fds[0];
 }
 
 }  // namespace procman

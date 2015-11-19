@@ -339,8 +339,9 @@ void ProcmanDeputy::CheckForDeadChildren() {
     if (mi->remove_requested) {
       dbgt ("[%s] remove\n", cmd->Id().c_str());
       // cleanup the private data structure used
-      delete mi;
+      commands_.erase(cmd);
       pm_->RemoveCommand(cmd);
+      delete mi;
     } else {
       MaybeScheduleRespawn(mi);
     }
@@ -357,8 +358,9 @@ void ProcmanDeputy::OnQuitTimer() {
     if (cmd->Pid()) {
       pm_->KillCommmand(cmd, SIGKILL);
     }
-    delete mi;
+    commands_.erase(cmd);
     pm_->RemoveCommand(cmd);
+    delete mi;
   }
 
   dbgt ("stopping deputy main loop\n");
@@ -366,10 +368,9 @@ void ProcmanDeputy::OnQuitTimer() {
 }
 
 void ProcmanDeputy::TransmitProcInfo() {
-  int i;
   // build a deputy info message
   deputy_info_t msg;
-  msg.utime = timestamp_now ();
+  msg.utime = timestamp_now();
   msg.host = deputy_name_;
   msg.cpu_load = cpu_load_;
   msg.phys_mem_total_bytes = cpu_time_[1].memtotal;
@@ -379,6 +380,7 @@ void ProcmanDeputy::TransmitProcInfo() {
 
   msg.ncmds = commands_.size();
   msg.cmds.resize(msg.ncmds);
+  msg.num_options = 0;
 
   int cmd_index = 0;
   for (auto& item : commands_) {
@@ -611,7 +613,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
     // do we already have this command somewhere?
     DeputyCommand *mi = nullptr;
     for (auto& item : commands_) {
-      if (item.first->SheriffId() == cmd_msg->sheriff_id) {
+      if (item.first->Id() == cmd_msg->cmd.command_id) {
         mi = item.second;
         break;
       }
@@ -636,6 +638,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
       mi->last_start_time = 0;
       mi->respawn_backoff = MIN_RESPAWN_DELAY_MS;
       mi->stdout_notifier = nullptr;
+      pm_->SetCommandSheriffId(cmd, cmd_msg->sheriff_id);
 
       mi->respawn_timer_.setSingleShot(true);
       QObject::connect(&mi->respawn_timer_, &QTimer::timeout,
@@ -743,8 +746,9 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
     } else {
       dbgt ("[%s] remove\n", cmd->Id().c_str());
       // cleanup the private data structure used
-      delete mi;
+      commands_.erase(cmd);
       pm_->RemoveCommand(cmd);
+      delete mi;
     }
 
     action_taken = 1;
@@ -853,6 +857,8 @@ int main (int argc, char **argv) {
     { 0, 0, 0, 0 }
   };
 
+  QCoreApplication app(argc, argv);
+
   DeputyOptions dep_options = DeputyOptions::Defaults();
   char *logfilename = NULL;
   std::string hostname_override;
@@ -913,10 +919,6 @@ int main (int argc, char **argv) {
     dep_options.name = hostname_override;
   }
 
-  ProcmanDeputy pmd(dep_options);
-
-  QCoreApplication app(argc, argv);
-
   // convert Unix signals into file descriptor writes
   signal_pipe_init();
   signal_pipe_add_signal(SIGINT);
@@ -924,6 +926,8 @@ int main (int argc, char **argv) {
   signal_pipe_add_signal(SIGQUIT);
   signal_pipe_add_signal(SIGTERM);
   signal_pipe_add_signal(SIGCHLD);
+
+  ProcmanDeputy pmd(dep_options);
 
   int app_status = app.exec();
 

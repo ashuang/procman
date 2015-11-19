@@ -471,7 +471,7 @@ ProcmanCommandPtr Procman::AddCommand(const std::string& exec_str, const std::st
         [sheriff_id](ProcmanCommandPtr cmd) {
         return cmd->SheriffId() == sheriff_id;
         });
-    if (iter != commands_.end()) {
+    if (iter == commands_.end()) {
       break;
     }
   }
@@ -483,7 +483,8 @@ ProcmanCommandPtr Procman::AddCommand(const std::string& exec_str, const std::st
   ProcmanCommandPtr newcmd(new ProcmanCommand(exec_str, cmd_id, sheriff_id));
   commands_.push_back(newcmd);
 
-  dbgt ("[%s] new command [%s]\n", newcmd->Id().c_str(), newcmd->ExecStr().c_str());
+  dbgt ("[%s] new command [%s]\n", cmd_id.c_str(), exec_str.c_str());
+
   return newcmd;
 }
 
@@ -531,6 +532,11 @@ void Procman::CheckCommand(ProcmanCommandPtr cmd) {
   if (std::find(commands_.begin(), commands_.end(), cmd) == commands_.end()) {
     throw std::invalid_argument("invalid command");
   }
+}
+
+void Procman::SetCommandSheriffId(ProcmanCommandPtr cmd, int sheriff_id) {
+  CheckCommand(cmd);
+  cmd->sheriff_id_ = sheriff_id;
 }
 
 }

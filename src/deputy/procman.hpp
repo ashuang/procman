@@ -153,6 +153,8 @@ class Procman {
      */
     void SetCommandId(ProcmanCommandPtr cmd, const std::string& cmd_id);
 
+    void SetCommandSheriffId(ProcmanCommandPtr cmd, int sheriff_id);
+
   private:
     void CheckCommand(ProcmanCommandPtr cmd);
     ProcmanOptions options_;
