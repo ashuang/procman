@@ -1,8 +1,7 @@
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
 
-add_definitions(-std=c++11 -fsanitize=address -fno-optimize-sibling-calls -fno-omit-frame-pointer)
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   set(procinfo_cpp procinfo_linux.cpp)
