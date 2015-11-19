@@ -18,12 +18,7 @@ enum CommandStatus {
 };
 
 struct ProcmanOptions {
-  static ProcmanOptions Default(int argc, char** argv);
-
-  // commands that are not specified as an absolute
-  // path have this prepended to their path
-  std::string bin_path;
-
+  static ProcmanOptions Default();
   bool verbose;
 };
 

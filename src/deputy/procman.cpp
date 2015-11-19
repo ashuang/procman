@@ -18,8 +18,6 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-#include <libgen.h>
-
 #include <sstream>
 
 #include <glib.h>
@@ -199,37 +197,18 @@ class VariableExpander {
     const StringStringMap* variables_;
 };
 
-ProcmanOptions ProcmanOptions::Default(int argc, char **argv) {
+ProcmanOptions ProcmanOptions::Default() {
   ProcmanOptions result;
-
-  // infer the path of procman.  This will be used with execv to start the
-  // child processes, as it's assumed that child executables reside in same
-  // directory as procman (or specified as a relative path or absolute path)
-  if (argc <= 0) {
-    fprintf (stderr, "procman: INVALID argc (%d)\n", argc);
-    abort();
-  }
-
-  char* argv0 = strdup(argv[0]);
-  result.bin_path = std::string(dirname(argv0)) + "/";
-  free(argv0);
+  result.verbose = false;
   return result;
 }
 
 Procman::Procman(const ProcmanOptions& options) :
   options_(options),
   variables_() {
-  // add the bin path to the PATH environment variable
-  //
-  // TODO check and see if it's already there
-  char *path = getenv ("PATH");
-  std::string newpath = options_.bin_path + ":" + path;
-  printf("setting PATH to %s\n", newpath.c_str());
-  setenv("PATH", newpath.c_str(), 1);
 }
 
-int Procman::StartCommand(ProcmanCommandPtr cmd)
-{
+int Procman::StartCommand(ProcmanCommandPtr cmd) {
     int status;
 
     if (0 != cmd->Pid()) {

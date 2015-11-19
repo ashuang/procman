@@ -4,6 +4,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <libgen.h>
 #include <sys/poll.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -102,33 +103,30 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options, QObject* parent) :
   lcm_notifier_(nullptr) {
   deputy_start_time_ = timestamp_now();
   deputy_pid_ = getpid();
-}
+  pm_ = new Procman(ProcmanOptions::Default());
 
-ProcmanDeputy::~ProcmanDeputy() {
-  // unsubscribe
-  if(orders2_subs_) {
-    lcm_->unsubscribe(orders2_subs_);
+  // Initialize LCM
+  lcm_ = new lcm::LCM(options.lcm_url);
+  if (!lcm_) {
+    throw std::runtime_error("error initializing LCM.");
   }
-  if(info2_subs_) {
-    lcm_->unsubscribe(info2_subs_);
-  }
-  if(discovery_subs_) {
-    lcm_->unsubscribe(discovery_subs_);
-  }
-}
 
-void ProcmanDeputy::Prepare() {
+  // Setup initial LCM subscriptions
   info2_subs_ = lcm_->subscribe("PM_INFO", &ProcmanDeputy::InfoReceived, this);
 
   discovery_subs_ = lcm_->subscribe("PM_DISCOVER",
       &ProcmanDeputy::DiscoveryReceived, this);
 
+  // Setup Qt timers
+
+  // TODO
   discovery_timer_.setInterval(200);
   connect(&discovery_timer_, &QTimer::timeout,
       this, &ProcmanDeputy::OnDiscoveryTimer);
   discovery_timer_.start();
   OnDiscoveryTimer();
 
+  // TODO
   one_second_timer_.setInterval(1000);
   connect(&one_second_timer_, &QTimer::timeout,
       this, &ProcmanDeputy::OnOneSecondTimer);
@@ -149,8 +147,20 @@ void ProcmanDeputy::Prepare() {
       [this]() { lcm_->handle(); });
 }
 
-// make this global so that the signal handler can access it
-static ProcmanDeputy* g_pmd;
+ProcmanDeputy::~ProcmanDeputy() {
+  // unsubscribe
+  if(orders2_subs_) {
+    lcm_->unsubscribe(orders2_subs_);
+  }
+  if(info2_subs_) {
+    lcm_->unsubscribe(info2_subs_);
+  }
+  if(discovery_subs_) {
+    lcm_->unsubscribe(discovery_subs_);
+  }
+  delete lcm_;
+  delete pm_;
+}
 
 void ProcmanDeputy::TransmitStr(int sheriff_id, const char* str) {
   output_t msg;
@@ -233,7 +243,7 @@ int ProcmanDeputy::StartCommand(DeputyCommand* mi, int desired_runid) {
     }
     mi->last_start_time = timestamp_now();
 
-    status = pm->StartCommand(cmd);
+    status = pm_->StartCommand(cmd);
     if (0 != status) {
         PrintfAndTransmit(0, "[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
         dbgt ("[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
@@ -270,11 +280,11 @@ int ProcmanDeputy::StopCommand(DeputyCommand* mi) {
   int64_t sigkill_time = mi->first_kill_time + (int64_t)(mi->stop_time_allowed * 1000000);
   int status;
   if(!mi->first_kill_time) {
-    status = pm->KillCommmand(cmd, mi->stop_signal);
+    status = pm_->KillCommmand(cmd, mi->stop_signal);
     mi->first_kill_time = now;
     mi->num_kills_sent++;
   } else if(now > sigkill_time) {
-    status = pm->KillCommmand(cmd, SIGKILL);
+    status = pm_->KillCommmand(cmd, SIGKILL);
   } else {
     return 0;
   }
@@ -287,7 +297,7 @@ int ProcmanDeputy::StopCommand(DeputyCommand* mi) {
 }
 
 void ProcmanDeputy::CheckForDeadChildren() {
-  ProcmanCommandPtr cmd = pm->CheckForDeadChildren();
+  ProcmanCommandPtr cmd = pm_->CheckForDeadChildren();
 
   while (cmd) {
     int status;
@@ -322,7 +332,7 @@ void ProcmanDeputy::CheckForDeadChildren() {
       delete mi->stdout_notifier;
       mi->stdout_notifier = nullptr;
 
-      pm->CloseDeadPipes(cmd);
+      pm_->CloseDeadPipes(cmd);
     }
 
     // remove ?
@@ -330,12 +340,12 @@ void ProcmanDeputy::CheckForDeadChildren() {
       dbgt ("[%s] remove\n", cmd->Id().c_str());
       // cleanup the private data structure used
       delete mi;
-      pm->RemoveCommand(cmd);
+      pm_->RemoveCommand(cmd);
     } else {
       MaybeScheduleRespawn(mi);
     }
 
-    cmd = pm->CheckForDeadChildren();
+    cmd = pm_->CheckForDeadChildren();
     TransmitProcInfo();
   }
 }
@@ -345,10 +355,10 @@ void ProcmanDeputy::OnQuitTimer() {
     DeputyCommand* mi = item.second;
     ProcmanCommandPtr cmd = item.first;
     if (cmd->Pid()) {
-      pm->KillCommmand(cmd, SIGKILL);
+      pm_->KillCommmand(cmd, SIGKILL);
     }
     delete mi;
-    pm->RemoveCommand(cmd);
+    pm_->RemoveCommand(cmd);
   }
 
   dbgt ("stopping deputy main loop\n");
@@ -474,7 +484,7 @@ void ProcmanDeputy::OnIntrospectionTimer() {
   }
 
   int nrunning = 0;
-  for (ProcmanCommandPtr cmd : pm->GetCommands()) {
+  for (ProcmanCommandPtr cmd : pm_->GetCommands()) {
     if (cmd->Pid()) {
       nrunning++;
     }
@@ -512,7 +522,7 @@ void ProcmanDeputy::OnPosixSignal() {
       DeputyCommand* mi = item.second;
       ProcmanCommandPtr cmd = item.first;
       if (cmd->Pid()) {
-        pm->KillCommmand(cmd, mi->stop_signal);
+        pm_->KillCommmand(cmd, mi->stop_signal);
         if(mi->stop_time_allowed > max_stop_time_allowed)
           max_stop_time_allowed = mi->stop_time_allowed;
       }
@@ -530,7 +540,7 @@ void ProcmanDeputy::OnPosixSignal() {
   if(exiting_) {
     // if we're exiting, and all child processes are dead, then exit.
     bool all_dead = true;
-    for (ProcmanCommandPtr cmd : pm->GetCommands()) {
+    for (ProcmanCommandPtr cmd : pm_->GetCommands()) {
       if (cmd->Pid()) {
         all_dead = false;
         break;
@@ -580,9 +590,9 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
   }
 
   // update variables
-  pm->RemoveAllVariables();
+  pm_->RemoveAllVariables();
   //    for(int varind=0; varind<orders->nvars; varind++) {
-  //        procman_set_variable(pm, orders->varnames[varind], orders->varvals[varind]);
+  //        procman_set_variable(pm_, orders->varnames[varind], orders->varvals[varind]);
   //    }
 
   // attempt to carry out the orders
@@ -615,11 +625,10 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
       if (options_.verbose) {
         dbgt ("adding new process (%s)\n", cmd_msg->cmd.exec_str.c_str());
       }
-      cmd = pm->AddCommand(cmd_msg->cmd.exec_str, cmd_msg->cmd.command_id);
+      cmd = pm_->AddCommand(cmd_msg->cmd.exec_str, cmd_msg->cmd.command_id);
 
       // allocate a private data structure
       mi = new DeputyCommand();
-      mi->deputy = this;
       mi->group_ = cmd_msg->cmd.group;
       mi->auto_respawn = cmd_msg->cmd.auto_respawn;
       mi->stop_signal = cmd_msg->cmd.stop_signal;
@@ -631,7 +640,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
       mi->respawn_timer_.setSingleShot(true);
       QObject::connect(&mi->respawn_timer_, &QTimer::timeout,
           [this, mi]() { 
-          if(mi->auto_respawn && !mi->should_be_stopped && !mi->deputy->exiting_) {
+          if(mi->auto_respawn && !mi->should_be_stopped && !exiting_) {
             StartCommand(mi, mi->actual_runid);
           }
           });
@@ -642,14 +651,14 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
     }
 
     // check if the command needs to be started or stopped
-    CommandStatus cmd_status = pm->GetCommandStatus(cmd);
+    CommandStatus cmd_status = pm_->GetCommandStatus(cmd);
 
     // rename a command?  does not kill a running command, so effect does
     // not apply until command is restarted.
     if (cmd->ExecStr() != cmd_msg->cmd.exec_str) {
       dbgt ("[%s] exec str -> [%s]\n", cmd->Id().c_str(),
           cmd_msg->cmd.exec_str.c_str());
-      pm->SetCommandExecStr(cmd, cmd_msg->cmd.exec_str);
+      pm_->SetCommandExecStr(cmd, cmd_msg->cmd.exec_str);
 
       action_taken = 1;
     }
@@ -658,7 +667,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
     if (cmd_msg->cmd.command_id != cmd->Id()) {
       dbgt ("[%s] rename -> [%s]\n", cmd->Id().c_str(),
           cmd_msg->cmd.command_id.c_str());
-      pm->SetCommandId(cmd, cmd_msg->cmd.command_id);
+      pm_->SetCommandId(cmd, cmd_msg->cmd.command_id);
       action_taken = 1;
     }
 
@@ -735,7 +744,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
       dbgt ("[%s] remove\n", cmd->Id().c_str());
       // cleanup the private data structure used
       delete mi;
-      pm->RemoveCommand(cmd);
+      pm_->RemoveCommand(cmd);
     }
 
     action_taken = 1;
@@ -844,14 +853,11 @@ int main (int argc, char **argv) {
     { 0, 0, 0, 0 }
   };
 
-
   DeputyOptions dep_options = DeputyOptions::Defaults();
   char *logfilename = NULL;
   std::string hostname_override;
-  char *lcmurl = NULL;
 
-  while ((c = getopt_long (argc, argv, optstring, long_opts, 0)) >= 0)
-  {
+  while ((c = getopt_long (argc, argv, optstring, long_opts, 0)) >= 0) {
     switch (c) {
       case 'v':
         dep_options.verbose = true;
@@ -861,8 +867,7 @@ int main (int argc, char **argv) {
         logfilename = strdup (optarg);
         break;
       case 'u':
-        free(lcmurl);
-        lcmurl = strdup(optarg);
+        dep_options.lcm_url = optarg;
         break;
       case 'n':
         hostname_override = optarg;
@@ -874,12 +879,16 @@ int main (int argc, char **argv) {
     }
   }
 
-  // create the lcm_t structure for doing IPC
-  lcm::LCM* lcm_obj = new lcm::LCM(lcmurl);
-  if (!lcm_obj) {
-    fprintf (stderr, "error initializing LCM.  ");
+  // Add the directory containing procamn_deputy to PATH. This is mostly
+  // for convenience.
+  if (argc <= 0) {
     return 1;
   }
+  char* argv0 = strdup(argv[0]);
+  std::string newpath = std::string(dirname(argv0)) + ":" + getenv("PATH");
+  printf("setting PATH to %s\n", newpath.c_str());
+  setenv("PATH", newpath.c_str(), 1);
+  free(argv0);
 
   // redirect stdout and stderr to a log file if the -l command line flag
   // was specified.
@@ -904,16 +913,9 @@ int main (int argc, char **argv) {
     dep_options.name = hostname_override;
   }
 
-  g_pmd = new ProcmanDeputy(dep_options);
-  ProcmanDeputy* pmd = g_pmd;
-
-  pmd->lcm_ = lcm_obj;
+  ProcmanDeputy pmd(dep_options);
 
   QCoreApplication app(argc, argv);
-
-  // load config file
-  ProcmanOptions options = ProcmanOptions::Default(argc, argv);
-  pmd->pm = new Procman(options);
 
   // convert Unix signals into file descriptor writes
   signal_pipe_init();
@@ -923,18 +925,10 @@ int main (int argc, char **argv) {
   signal_pipe_add_signal(SIGTERM);
   signal_pipe_add_signal(SIGCHLD);
 
-  pmd->Prepare();
-
   int app_status = app.exec();
 
   // cleanup
   signal_pipe_cleanup();
-
-  delete pmd->pm;
-
-  delete pmd->lcm_;
-
-  delete pmd;
 
   return app_status;
 }

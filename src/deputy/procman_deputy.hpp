@@ -22,8 +22,6 @@ namespace procman {
 class ProcmanDeputy;
 
 struct DeputyCommand {
-  ProcmanDeputy *deputy;
-
   ProcmanCommandPtr cmd;
 
   QSocketNotifier* stdout_notifier;
@@ -54,6 +52,7 @@ struct DeputyOptions {
   static DeputyOptions Defaults();
 
   std::string name;
+  std::string lcm_url;
   bool verbose;
 };
 
@@ -62,17 +61,15 @@ class ProcmanDeputy : public QObject {
 
   public:
     ProcmanDeputy(const DeputyOptions& options, QObject* parent = nullptr);
-
     ~ProcmanDeputy();
 
+  private:
     void OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::string& channel,
         const procman_lcm::orders_t* orders);
     void DiscoveryReceived(const lcm::ReceiveBuffer* rbuf,
         const std::string& channel, const procman_lcm::discovery_t* msg);
     void InfoReceived(const lcm::ReceiveBuffer* rbuf,
         const std::string& channel, const procman_lcm::deputy_info_t* msg);
-
-    void Prepare();
 
     void OnDiscoveryTimer();
 
@@ -86,11 +83,6 @@ class ProcmanDeputy : public QObject {
 
     void OnProcessOutputAvailable(DeputyCommand* mi);
 
-    lcm::LCM *lcm_;
-
-    Procman *pm;
-
-  private:
     void UpdateCpuTimes();
 
     void CheckForDeadChildren();
@@ -108,6 +100,10 @@ class ProcmanDeputy : public QObject {
     void PrintfAndTransmit(int sheriff_id, const char *fmt, ...);
 
     DeputyOptions options_;
+
+    Procman *pm_;
+
+    lcm::LCM *lcm_;
 
     std::string deputy_name_;
 
