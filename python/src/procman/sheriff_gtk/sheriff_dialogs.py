@@ -14,7 +14,8 @@ class AddModifyCommandDialog (gtk.Dialog):
             initial_cmd="", initial_cmd_id="", initial_deputy="",
             initial_group="", initial_auto_respawn=False,
             initial_stop_signal=DEFAULT_STOP_SIGNAL,
-            initial_stop_time_allowed=DEFAULT_STOP_TIME_ALLOWED):
+            initial_stop_time_allowed=DEFAULT_STOP_TIME_ALLOWED,
+            cmd_id_sensitive=True):
         # add command dialog
         gtk.Dialog.__init__ (self, "Add/Modify Command", parent,
                 gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
@@ -57,6 +58,8 @@ class AddModifyCommandDialog (gtk.Dialog):
         table.attach (self.cmd_id_te, 1, 2, 2, 3)
         self.cmd_id_te.connect ("activate",
                 lambda e: self.response (gtk.RESPONSE_ACCEPT))
+        if not cmd_id_sensitive:
+            self.cmd_id_te.set_sensitive(False)
 
         # group
         table.attach (gtk.Label ("Group"), 0, 1, 3, 4, 0, 0)

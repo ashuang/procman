@@ -80,7 +80,7 @@ class SheriffCommandConsole(gtk.ScrolledWindow):
 
         self._cmd_extradata = {}
 
-        lc.subscribe ("PM_OUTPUT", self.on_procman_printf)
+        lc.subscribe ("PM_OUTPUT", self.on_procman_output)
 
         self.text_tags = { "normal" : gtk.TextTag("normal") }
         for tt in self.text_tags.values():
@@ -250,13 +250,11 @@ class SheriffCommandConsole(gtk.ScrolledWindow):
     def on_adj_value_changed (self, adj):
         adj.set_data ("scrolled-to-end", adj.value == adj.upper-adj.page_size)
 
-    def on_procman_printf (self, channel, data):
+    def on_procman_output (self, channel, data):
         msg = output_t.decode (data)
-        if msg.sheriff_id:
-            try:
-                cmd = self.sheriff.get_command_by_sheriff_id(msg.sheriff_id)
-            except KeyError:
-                # TODO
+        if msg.command_id:
+            cmd = self.sheriff.get_command_by_id(msg.command_id)
+            if not cmd:
                 return
 
             extradata = self._cmd_extradata.get(cmd, None)

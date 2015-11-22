@@ -30,8 +30,6 @@ class ProcmanCommand {
 
     const std::string& Id() const { return cmd_id_; }
 
-    int SheriffId() const { return sheriff_id_; }
-
     int Pid() const { return pid_; }
 
     int StdoutFd() const { return stdout_fd_; }
@@ -42,7 +40,7 @@ class ProcmanCommand {
 
   private:
     ProcmanCommand(const std::string& exec_str,
-        const std::string& cmd_id, int32_t sheriff_id);
+        const std::string& cmd_id);
 
     void SetPid(int pid) { pid_ = pid; }
 
@@ -61,9 +59,6 @@ class ProcmanCommand {
 
     // the command to execute.
     std::string exec_str_;
-
-    // unique to the containing instance of Procman
-    int32_t sheriff_id_;
 
     // pid of process when running.  0 otherwise
     int pid_;
@@ -152,8 +147,6 @@ class Procman {
      * Sets the command id.
      */
     void SetCommandId(ProcmanCommandPtr cmd, const std::string& cmd_id);
-
-    void SetCommandSheriffId(ProcmanCommandPtr cmd, int sheriff_id);
 
   private:
     void CheckCommand(ProcmanCommandPtr cmd);

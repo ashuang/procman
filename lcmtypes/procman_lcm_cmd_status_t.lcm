@@ -26,7 +26,4 @@ struct cmd_status_t {
 
     // total physical memory used by the process
     int64_t mem_rss_bytes;
-
-    // assigned by the sheriff, identifies the command
-    int32_t sheriff_id;
 }

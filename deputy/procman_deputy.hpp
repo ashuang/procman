@@ -68,9 +68,9 @@ class ProcmanDeputy : public QObject {
 
     int StopCommand(DeputyCommand* mi);
 
-    void TransmitStr(int sheriff_id, const char* str);
+    void TransmitStr(const std::string& command_id, const char* str);
 
-    void PrintfAndTransmit(int sheriff_id, const char *fmt, ...);
+    void PrintfAndTransmit(const std::string& command_id, const char *fmt, ...);
 
     DeputyOptions options_;
 

@@ -195,16 +195,16 @@ ProcmanDeputy::~ProcmanDeputy() {
   delete pm_;
 }
 
-void ProcmanDeputy::TransmitStr(int sheriff_id, const char* str) {
+void ProcmanDeputy::TransmitStr(const std::string& command_id, const char* str) {
   output_t msg;
   msg.deputy_name = deputy_name_;
-  msg.sheriff_id = sheriff_id;
+  msg.command_id = command_id;
   msg.text = str;
   msg.utime = timestamp_now ();
   lcm_->publish("PM_OUTPUT", &msg);
 }
 
-void ProcmanDeputy::PrintfAndTransmit(int sheriff_id, const char *fmt, ...) {
+void ProcmanDeputy::PrintfAndTransmit(const std::string& command_id, const char *fmt, ...) {
   int len;
   char buf[256];
   va_list ap;
@@ -217,7 +217,7 @@ void ProcmanDeputy::PrintfAndTransmit(int sheriff_id, const char *fmt, ...) {
   if (len) {
     output_t msg;
     msg.deputy_name = deputy_name_;
-    msg.sheriff_id = sheriff_id;
+    msg.command_id = command_id;
     msg.text = buf;
     msg.utime = timestamp_now ();
     lcm_->publish("PM_OUTPUT", &msg);
@@ -237,11 +237,11 @@ void ProcmanDeputy::OnProcessOutputAvailable(DeputyCommand* mi) {
     snprintf (buf, sizeof (buf), "procman [%s] read: %s (%d)\n",
         cmd->ExecStr().c_str(), strerror (errno), errno);
     dbgt (buf);
-    TransmitStr(cmd->SheriffId(), buf);
+    TransmitStr(cmd->Id(), buf);
   } else {
     // TODO buffer output
     buf[bytes_read] = '\0';
-    TransmitStr(cmd->SheriffId(), buf);
+    TransmitStr(cmd->Id(), buf);
   }
   anycondition = 1;
 }
@@ -278,10 +278,10 @@ int ProcmanDeputy::StartCommand(DeputyCommand* mi, int desired_runid) {
 
   status = pm_->StartCommand(cmd);
   if (0 != status) {
-    PrintfAndTransmit(0, "[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
+    PrintfAndTransmit("", "[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
     dbgt ("[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
     MaybeScheduleRespawn(mi);
-    PrintfAndTransmit(cmd->SheriffId(),
+    PrintfAndTransmit(cmd->Id(),
         "ERROR!  [%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
     return -1;
   }
@@ -325,7 +325,7 @@ int ProcmanDeputy::StopCommand(DeputyCommand* mi) {
   }
 
   if (0 != status) {
-    PrintfAndTransmit(cmd->SheriffId(),
+    PrintfAndTransmit(cmd->Id(),
         "kill: %s\n", strerror (-status));
   }
   return status;
@@ -355,11 +355,11 @@ void ProcmanDeputy::CheckForDeadChildren() {
     if (WIFSIGNALED (exit_status)) {
       int signum = WTERMSIG (exit_status);
 
-      PrintfAndTransmit(cmd->SheriffId(),
+      PrintfAndTransmit(cmd->Id(),
           "%s\n",
           strsignal (signum), signum);
       if (WCOREDUMP (exit_status)) {
-        PrintfAndTransmit(cmd->SheriffId(), "Core dumped.\n");
+        PrintfAndTransmit(cmd->Id(), "Core dumped.\n");
       }
     }
 
@@ -434,7 +434,6 @@ void ProcmanDeputy::TransmitProcInfo() {
     msg.cmds[cmd_index].actual_runid = mi->actual_runid;
     msg.cmds[cmd_index].pid = cmd->Pid();
     msg.cmds[cmd_index].exit_code = cmd->ExitStatus();
-    msg.cmds[cmd_index].sheriff_id = cmd->SheriffId();
     msg.cmds[cmd_index].cpu_usage = mi->cpu_usage;
     msg.cmds[cmd_index].mem_vsize_bytes = mi->cpu_time[1].vsize;
     msg.cmds[cmd_index].mem_rss_bytes = mi->cpu_time[1].rss;
@@ -585,9 +584,9 @@ void ProcmanDeputy::OnPosixSignal() {
 }
 
 static const cmd_desired_t* OrdersFindCmd (const orders_t* orders,
-    int32_t sheriff_id) {
+    const std::string& command_id) {
   for (int i=0; i<orders->ncmds; i++) {
-    if (sheriff_id == orders->cmds[i].sheriff_id) {
+    if (command_id == orders->cmds[i].cmd.command_id) {
       return &orders->cmds[i];
     }
   }
@@ -613,7 +612,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
   if (now - orders->utime > PROCMAN_MAX_MESSAGE_AGE_USEC) {
     for (int i=0; i<orders->ncmds; i++) {
       const cmd_desired_t *cmd_msg = &orders->cmds[i];
-      PrintfAndTransmit(cmd_msg->sheriff_id,
+      PrintfAndTransmit(cmd_msg->cmd.command_id,
           "ignoring stale orders (utime %d seconds ago). You may want to check the system clocks!\n",
           (int) ((now - orders->utime) / 1000000));
     }
@@ -667,7 +666,6 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
       mi->last_start_time = 0;
       mi->respawn_backoff_ms = MIN_RESPAWN_DELAY_MS;
       mi->stdout_notifier = nullptr;
-      pm_->SetCommandSheriffId(cmd, cmd_msg->sheriff_id);
 
       mi->respawn_timer.setSingleShot(true);
       QObject::connect(&mi->respawn_timer, &QTimer::timeout,
@@ -755,7 +753,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
   for (auto& item : commands_) {
     DeputyCommand* mi = item.second;
     ProcmanCommandPtr cmd = item.first;
-    const cmd_desired_t *cmd_msg = OrdersFindCmd (orders, cmd->SheriffId());
+    const cmd_desired_t *cmd_msg = OrdersFindCmd (orders, cmd->Id());
 
     if (! cmd_msg) {
       // push the orphaned command into a list first.  remove later, to

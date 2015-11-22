@@ -325,7 +325,7 @@ class ScriptManager(object):
 
     def _get_action_commands(self, ident_type, ident):
         if ident_type == "cmd":
-            return self._sheriff.get_commands_by_id(ident)
+            return [ self._sheriff.get_command_by_id(ident) ]
         elif ident_type == "group":
             return self._sheriff.get_commands_by_group(ident)
         elif ident_type == "everything":
@@ -346,7 +346,7 @@ class ScriptManager(object):
             if action.action_type in \
                     [ "start", "stop", "restart", "wait_status" ]:
                 if action.ident_type == "cmd":
-                    if not self._sheriff.get_commands_by_id(action.ident):
+                    if not self._sheriff.get_command_by_id(action.ident):
                         err_msgs.append("No such command: %s" % action.ident)
                 elif action.ident_type == "group":
                     if not self._sheriff.get_commands_by_group(action.ident):

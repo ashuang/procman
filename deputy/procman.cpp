@@ -433,10 +433,9 @@ void ProcmanCommand::PrepareArgsAndEnvironment(const StringStringMap& variables)
 }
 
 ProcmanCommand::ProcmanCommand(const std::string& exec_str,
-    const std::string& cmd_id, int32_t sheriff_id) :
+    const std::string& cmd_id) :
   exec_str_(exec_str),
   cmd_id_(cmd_id),
-  sheriff_id_(sheriff_id),
   pid_(0),
   stdin_fd_(-1),
   stdout_fd_(-1),
@@ -461,26 +460,7 @@ void Procman::RemoveAllVariables() {
 }
 
 ProcmanCommandPtr Procman::AddCommand(const std::string& exec_str, const std::string& cmd_id) {
-  // pick a suitable ID
-  int32_t sheriff_id;
-
-  // TODO make this more efficient (i.e. sort the existing sheriff_ids)
-  //      this implementation is O (n^2)
-  for (sheriff_id=1; sheriff_id<INT_MAX; sheriff_id++) {
-    auto iter = std::find_if(commands_.begin(), commands_.end(),
-        [sheriff_id](ProcmanCommandPtr cmd) {
-        return cmd->SheriffId() == sheriff_id;
-        });
-    if (iter == commands_.end()) {
-      break;
-    }
-  }
-  if (sheriff_id == INT_MAX) {
-    dbgt ("way too many commands on the system....\n");
-    return ProcmanCommandPtr();
-  }
-
-  ProcmanCommandPtr newcmd(new ProcmanCommand(exec_str, cmd_id, sheriff_id));
+  ProcmanCommandPtr newcmd(new ProcmanCommand(exec_str, cmd_id));
   commands_.push_back(newcmd);
 
   dbgt ("[%s] new command [%s]\n", cmd_id.c_str(), exec_str.c_str());
@@ -532,11 +512,6 @@ void Procman::CheckCommand(ProcmanCommandPtr cmd) {
   if (std::find(commands_.begin(), commands_.end(), cmd) == commands_.end()) {
     throw std::invalid_argument("invalid command");
   }
-}
-
-void Procman::SetCommandSheriffId(ProcmanCommandPtr cmd, int sheriff_id) {
-  CheckCommand(cmd);
-  cmd->sheriff_id_ = sheriff_id;
 }
 
 }

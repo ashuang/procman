@@ -33,8 +33,8 @@ except ImportError:
     BUILD_PREFIX = None
 
 def _dbg(text):
-    return
-#    sys.stderr.write("%s\n" % text)
+#    return
+    sys.stderr.write("%s\n" % text)
 
 def find_procman_glade():
     search_path = []
@@ -361,6 +361,7 @@ class SheriffGtk(object):
         if self.script_done_action == "exit":
             gtk.main_quit()
         elif self.script_done_action == "observe":
+            self.script_done_action = None
             self.set_observer(True)
 
     def _on_script_finished(self, script):
@@ -570,6 +571,7 @@ class SheriffGtk(object):
         self.new_cmd_mi.set_sensitive (can_add_load)
         self.load_cfg_mi.set_sensitive (can_add_load)
 
+        # TODO script menu sensitivities
         self.abort_script_mi.set_sensitive(script_active)
 
     def _on_cmds_selection_changed (self, selection):

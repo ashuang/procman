@@ -343,11 +343,11 @@ class SheriffCommandTreeView(gtk.TreeView):
                                          cur_exec_str, cur_command_id, cur_deputy,
                                          cur_group, cur_auto_respawn,
                                          cur_stop_signal,
-                                         cur_stop_time_allowed)
+                                         cur_stop_time_allowed,
+                                         cmd_id_sensitive=False)
 
         while dlg.run () == gtk.RESPONSE_ACCEPT:
             new_exec_str = dlg.get_command()
-            new_id = dlg.get_command_id()
             newdeputy = dlg.get_deputy()
             newgroup = dlg.get_group()
             newauto_respawn = dlg.get_auto_respawn()
@@ -355,40 +355,12 @@ class SheriffCommandTreeView(gtk.TreeView):
             new_stop_time_allowed = dlg.get_stop_time_allowed()
             cmd_ind = 0
 
-            validated = True
-            for cmd in cmds:
-                errmsg = None
-                if new_id == unchanged_val:
-                    continue
-                existing_cmds = self.sheriff.get_commands_by_deputy_and_id(newdeputy, new_id)
-                if existing_cmds and existing_cmds != [ cmd ]:
-                    errmsg = "Deputy [%s] already has a command [%s]" % (newdeputy, new_id)
-                if not new_id:
-                    errmsg = "Empty command id not allowed"
-                if not errmsg:
-                    continue
-
-                errdlg = gtk.MessageDialog(dlg,
-                        gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
-                        gtk.MESSAGE_ERROR, gtk.BUTTONS_CLOSE)
-                errdlg.set_markup("Error!\n<span font_family=\"monospace\">%s</span>" % errmsg)
-                errdlg.run()
-                errdlg.destroy()
-                validated = False
-                break
-
-            if not validated:
-                continue
-
             for cmd in cmds:
                 if newdeputy != old_deputies[cmd_ind] and newdeputy != unchanged_val:
                     cmd = self.sheriff.move_cmd_to_deputy(cmd, newdeputy)
 
                 if new_exec_str != cmd.exec_str and new_exec_str != unchanged_val:
                     self.sheriff.set_command_exec(cmd, new_exec_str)
-
-                if new_id != cmd.command_id and new_id != unchanged_val:
-                    self.sheriff.set_command_id(cmd, new_id)
 
                 if newauto_respawn != cmd.auto_respawn and newauto_respawn >=0:
                     self.sheriff.set_auto_respawn(cmd, newauto_respawn)
