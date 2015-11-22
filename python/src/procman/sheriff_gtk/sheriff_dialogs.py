@@ -6,7 +6,7 @@ import gobject
 import gtk
 
 from procman.sheriff_config import Parser, ScriptNode
-from procman.sheriff_script import SheriffScript
+from procman.sheriff_script import SheriffScript, ScriptManager
 from procman.sheriff import SheriffCommandSpec, DEFAULT_STOP_SIGNAL, DEFAULT_STOP_TIME_ALLOWED
 
 class AddModifyCommandDialog (gtk.Dialog):
@@ -302,7 +302,7 @@ def _do_err_dialog(window, msg):
     msgdlg.run ()
     msgdlg.destroy ()
 
-def _parse_script(sheriff, window, dlg):
+def _parse_script(script_manager, window, dlg):
     contents = dlg.get_script_contents()
 
     # check script for errors
@@ -325,47 +325,47 @@ def _parse_script(sheriff, window, dlg):
 
     script = SheriffScript.from_script_node(script_nodes[0])
 
-    errors = sheriff.check_script_for_errors(script)
+    errors = script_manager.check_script_for_errors(script)
     if errors:
         print errors
         _do_err_dialog(window, "Script error.\n\n" + "\n   ".join(errors))
         return None
     return script
 
-def do_add_script_dialog(sheriff, window):
+def do_add_script_dialog(script_manager, window):
     dlg = AddModifyScriptDialog (window, None)
     while dlg.run() == gtk.RESPONSE_ACCEPT:
-        script = _parse_script(sheriff, window, dlg)
+        script = _parse_script(script_manager, window, dlg)
         if script is None:
             dlg.script_tv.grab_focus()
             continue
-        if sheriff.get_script(script.name) is not None:
+        if script_manager.get_script(script.name) is not None:
             _do_err_dialog(window,
                     "A script named %s already exists!" % script.name)
             continue
-        sheriff.add_script(script)
+        script_manager.add_script(script)
         break
     dlg.destroy ()
 
-def do_edit_script_dialog(sheriff, window, script):
-    if sheriff.get_active_script():
+def do_edit_script_dialog(script_manager, window, script):
+    if script_manager.get_active_script():
         _do_err_dialog(window, "Script editing is not allowed while a script is running.")
         return
 
     dlg = AddModifyScriptDialog (window, script)
     while dlg.run() == gtk.RESPONSE_ACCEPT:
-        new_script = _parse_script(sheriff, window, dlg)
+        new_script = _parse_script(script_manager, window, dlg)
         if new_script is None:
             dlg.script_tv.grab_focus()
             continue
         if new_script.name != script.name:
-            if sheriff.get_script(new_script.name) is not None:
+            if script_manager.get_script(new_script.name) is not None:
                 _do_err_dialog(window,
                         "A script named %s already exists!" % script.name)
                 dlg.script_tv.grab_focus()
                 continue
-        sheriff.remove_script(script)
-        sheriff.add_script(new_script)
+        script_manager.remove_script(script)
+        script_manager.add_script(new_script)
         break
     dlg.destroy ()
 
