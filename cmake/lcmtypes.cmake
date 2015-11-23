@@ -128,20 +128,18 @@ function(lcmtypes_build_c)
         COMMAND sh -c '${LCM_GEN_EXECUTABLE} --lazy -c ${_lcmtypes} --c-cpath ${_lcmtypes_c_dir} --c-hpath ${_lcmtypes_c_dir}'
         DEPENDS ${_lcmtypes})
 
-    include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}/lcmtypes/c) #TODO: don't think this is necessary
-    include_directories(${LCM_INCLUDE_DIRS})
-
     # aggregate into a static library
     add_library(${libname} STATIC ${_lcmtypes_c_files})
     set_source_files_properties(${_lcmtypes_c_files} PROPERTIES COMPILE_FLAGS "-fPIC")
     set_target_properties(${libname} PROPERTIES PREFIX "lib")
     set_target_properties(${libname} PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+    target_include_directories(${libname} PUBLIC ${LCM_INCLUDE_DIRS} ${lcmtypes_include_build_path})
 
     # Copy the .h files into the output include/ path
     set(_output_h_files)
     foreach(_lcmtype_h_file ${_lcmtypes_h_files})
       file(RELATIVE_PATH _h_relname ${CMAKE_CURRENT_BINARY_DIR}/lcmtypes/c/lcmtypes ${_lcmtype_h_file})
-      set(_h_file_output ${INCLUDE_OUTPUT_PATH}/lcmtypes/${_h_relname})
+      set(_h_file_output ${lcmtypes_include_build_path}/lcmtypes/${_h_relname})
       add_custom_command(OUTPUT ${_h_file_output}
                          COMMAND ${CMAKE_COMMAND} -E copy ${_lcmtype_h_file} ${_h_file_output}
                          DEPENDS ${_lcmtype_h_file})
@@ -207,16 +205,13 @@ function(lcmtypes_build_cpp)
     set(_output_hpp_files)
     foreach(_lcmtype_hpp_file ${_lcmtypes_hpp_files})
       file(RELATIVE_PATH _hpp_relname ${CMAKE_CURRENT_BINARY_DIR}/lcmtypes/cpp/lcmtypes ${_lcmtype_hpp_file})
-      set(_hpp_file_output ${INCLUDE_OUTPUT_PATH}/lcmtypes/${_hpp_relname})
+      set(_hpp_file_output ${lcmtypes_include_build_path}/lcmtypes/${_hpp_relname})
       add_custom_command(OUTPUT ${_hpp_file_output}
                          COMMAND ${CMAKE_COMMAND} -E copy ${_lcmtype_hpp_file} ${_hpp_file_output}
                          DEPENDS ${_lcmtype_hpp_file})
       list(APPEND _output_hpp_files ${_hpp_file_output})
     endforeach()
     add_custom_target(${PROJECT_NAME}_lcmgen_output_hpp_files ALL DEPENDS ${_output_hpp_files})
-
-    include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}/lcmtypes/cpp) #TODO: don't think this is necessary
-    include_directories(${LCM_INCLUDE_DIRS})
 
     lcmtypes_add_clean_dir("${CMAKE_CURRENT_BINARY_DIR}/lcmtypes/cpp")
 endfunction()
@@ -360,12 +355,15 @@ endfunction()
 function(lcmtypes_build)
     # Get the list of .lcm files to build
     set(lcmtypes)
-    set(modewords TYPES)
+    set(lcmtypes_include_build_path)
+    set(modewords INCLUDE_BUILD_PATH TYPES)
     set(curmode "")
     foreach(word ${ARGV})
         list(FIND modewords ${word} mode_index)
         if(${mode_index} GREATER -1)
             set(curmode ${word})
+        elseif(curmode STREQUAL INCLUDE_BUILD_PATH)
+            set(lcmtypes_include_build_path ${word})
         elseif(curmode STREQUAL TYPES)
             if(EXISTS ${word})
                 list(APPEND lcmtypes ${word})
@@ -393,9 +391,9 @@ function(lcmtypes_build)
     	return()
     endif()
 
-    if(NOT INCLUDE_OUTPUT_PATH)
-      set(INCLUDE_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR}/include)
-      execute_process(COMMAND mkdir -p ${INCLUDE_OUTPUT_PATH})
+    if(NOT lcmtypes_include_build_path)
+      set(lcmtypes_include_build_path ${CMAKE_CURRENT_BINARY_DIR}/include)
+      execute_process(COMMAND mkdir -p ${lcmtypes_include_build_path})
     endif()
 
     lcmtypes_build_c(${lcmtypes})

@@ -4,9 +4,14 @@ project(procman)
 
 find_package(Qt5Core)
 
+# Create a directory for build-generated header files
+set(INCLUDE_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR}/include)
+execute_process(COMMAND mkdir -p ${INCLUDE_OUTPUT_PATH})
+
 # build LCM types.
 include(cmake/lcmtypes.cmake)
-lcmtypes_build(TYPES
+lcmtypes_build(INCLUDE_BUILD_PATH ${INCLUDE_OUTPUT_PATH}
+               TYPES
                lcmtypes/procman_lcm_cmd_t.lcm
                lcmtypes/procman_lcm_cmd_status_t.lcm
                lcmtypes/procman_lcm_discovery_t.lcm
