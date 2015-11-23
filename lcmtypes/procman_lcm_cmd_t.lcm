@@ -1,23 +1,24 @@
 package procman_lcm;
 
 struct cmd_t {
-    // Executable string
-    string exec_str;
-
+    // Uniquely identifies the command
     string command_id;
 
+    // Executable string.
+    string exec_str;
+
+    // Logical group that the command belongs to.
     string group;
 
+    // If true and the command stops running on its own, then the deputy will
+    // automatically restart the command.
     boolean auto_respawn;
 
+    // The POSIX signal number to send when stopping the command. Typically
+    // this is something like SIGINT or SIGTERM
     int8_t stop_signal;
 
+    // How much time (seconds) to allow the command to gracefully terminate,
+    // when stopping the command, before issuing a SIGKILL.
     float stop_time_allowed;
-
-    int32_t num_options;
-
-    string option_names[num_options];
-
-    string option_values[num_options];
 }
-

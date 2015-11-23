@@ -14,5 +14,5 @@ struct cmd_desired_t {
 
     // flag set by the sheriff.  If set, then the deputy should forcefully
     // terminate the command
-    int8_t force_quit;
+    boolean force_quit;
 }

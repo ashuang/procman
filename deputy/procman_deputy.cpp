@@ -415,7 +415,6 @@ void ProcmanDeputy::TransmitProcInfo() {
 
   msg.ncmds = commands_.size();
   msg.cmds.resize(msg.ncmds);
-  msg.num_options = 0;
 
   int cmd_index = 0;
   for (auto& item : commands_) {
@@ -428,9 +427,6 @@ void ProcmanDeputy::TransmitProcInfo() {
     msg.cmds[cmd_index].cmd.auto_respawn = mi->auto_respawn;
     msg.cmds[cmd_index].cmd.stop_signal = mi->stop_signal;
     msg.cmds[cmd_index].cmd.stop_time_allowed = mi->stop_time_allowed;
-    msg.cmds[cmd_index].cmd.num_options = 0;
-    msg.cmds[cmd_index].cmd.option_names.clear();
-    msg.cmds[cmd_index].cmd.option_values.clear();
     msg.cmds[cmd_index].actual_runid = mi->actual_runid;
     msg.cmds[cmd_index].pid = cmd->Pid();
     msg.cmds[cmd_index].exit_code = cmd->ExitStatus();

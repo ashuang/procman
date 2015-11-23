@@ -20,8 +20,4 @@ struct deputy_info_t {
 
     int32_t ncmds;
     cmd_status_t cmds[ncmds];
-
-    int32_t num_options;
-    string option_names[num_options];
-    string option_values[num_options];
 }

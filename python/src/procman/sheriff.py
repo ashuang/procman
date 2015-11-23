@@ -136,7 +136,7 @@ class SheriffDeputyCommand(object):
         self.desired_runid = 0
 
         ## Sheriff-managed variable used to start and stop the command.
-        self.force_quit = 0
+        self.force_quit = False
 
         ## True if the command is being removed.
         self.scheduled_for_removal = False
@@ -176,7 +176,7 @@ class SheriffDeputyCommand(object):
             self.actual_runid == self.desired_runid and \
             not self.auto_respawn and \
             not self.force_quit:
-                self.force_quit = 1
+                self.force_quit = True
 
     def _update_from_cmd_orders(self, cmd_msg):
         self.exec_str = cmd_msg.cmd.exec_str
@@ -198,16 +198,16 @@ class SheriffDeputyCommand(object):
         self.desired_runid += 1
         if self.desired_runid > (2 << 31):
             self.desired_runid = 1
-        self.force_quit = 0
+        self.force_quit = False
 
     def _restart(self):
         self.desired_runid += 1
         if self.desired_runid > (2 << 31):
             self.desired_runid = 1
-        self.force_quit = 0
+        self.force_quit = False
 
     def _stop(self):
-        self.force_quit = 1
+        self.force_quit = True
 
     def status(self):
         """Retrieve the status of the command, as understood by the
@@ -420,15 +420,9 @@ class SheriffDeputy(object):
             cmd_msg.cmd.auto_respawn = cmd.auto_respawn
             cmd_msg.cmd.stop_signal = cmd.stop_signal
             cmd_msg.cmd.stop_time_allowed = cmd.stop_time_allowed
-            cmd_msg.cmd.num_options = 0
-            cmd_msg.cmd.option_names = []
-            cmd_msg.cmd.option_values = []
             cmd_msg.desired_runid = cmd.desired_runid
             cmd_msg.force_quit = cmd.force_quit
             msg.cmds.append(cmd_msg)
-        msg.num_options = 0
-        msg.option_names = []
-        msg.option_values = []
         return msg
 
 class SheriffListener(object):

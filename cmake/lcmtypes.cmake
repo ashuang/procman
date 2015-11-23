@@ -186,7 +186,12 @@ function(lcmtypes_build_cpp)
 
     # run lcm-gen now
     execute_process(COMMAND mkdir -p ${_lcmtypes_cpp_dir})
-    lcmgen(--lazy --cpp --cpp-hpath ${_lcmtypes_cpp_dir} --cpp-include lcmtypes ${_lcmtypes})
+    set(lcmgen_cpp_flags --lazy
+                         --cpp
+                         --cpp-hpath ${_lcmtypes_cpp_dir}
+                         --cpp-include lcmtypes
+                         ${_lcmtypes})
+    lcmgen(${lcmgen_cpp_flags})
 
     # get a list of all generated .hpp files
     file(GLOB_RECURSE _lcmtypes_hpp_files  ${_lcmtypes_cpp_dir}/*.hpp)
@@ -194,7 +199,7 @@ function(lcmtypes_build_cpp)
     # run lcm-gen at compile time
     add_custom_command(OUTPUT ${_lcmtypes_hpp_files}
         COMMAND sh -c '[ -d ${_lcmtypes_cpp_dir} ] || mkdir -p ${_lcmtypes_cpp_dir}'
-        COMMAND sh -c '${LCM_GEN_EXECUTABLE} --lazy --cpp ${_lcmtypes} --cpp-hpath ${_lcmtypes_cpp_dir}'
+        COMMAND sh -c '${LCM_GEN_EXECUTABLE} ${lcmgen_cpp_flags}'
         DEPENDS ${_lcmtypes})
     add_custom_target(${PROJECT_NAME}_lcmgen_cpp ALL DEPENDS ${_lcmtypes_hpp_files})
 
