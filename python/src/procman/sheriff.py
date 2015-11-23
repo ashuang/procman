@@ -2,11 +2,11 @@
 
 \defgroup python_api Python API
 """
+from abc import ABCMeta, abstractmethod
 import os
 import platform
 import sys
 import time
-import random
 import signal
 import threading
 import thread
@@ -300,15 +300,15 @@ class SheriffDeputy(object):
         """
         return self._commands.values()
 
-    def owns_command(self, cmd_object):
+    def owns_command(self, cmd_obj):
         """Check to see if this deputy manages the specified command
 
-        @param cmd_object a SheriffDeputyCommand object.
+        @param cmd_obj a SheriffDeputyCommand object.
 
         @return True if this deputy object manages \p command, False if not.
         """
-        return cmd_object.command_id in self._commands and \
-                self._commands[cmd_object.command_id] is cmd_object
+        return cmd_obj.command_id in self._commands and \
+                self._commands[cmd_obj.command_id] is cmd_obj
 
     def _update_from_deputy_info(self, dep_info_msg):
         """
@@ -433,6 +433,60 @@ class SheriffDeputy(object):
         msg.option_values = []
         return msg
 
+class SheriffListener:
+    """Inherit from this class to receive notifications of Sheriff activity.
+    """
+    __metaclass__ = ABCMeta
+
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def deputy_info_received(self, deputy_obj):
+        """Called when information from a deputy is received and processed.
+
+        \param deputy_obj is a SheriffDeputy corresponding to the updated deputy.
+        """
+        return
+
+    @abstractmethod
+    def command_added(self, deputy_obj, cmd_obj):
+        """Called when a new command is added to the sheriff.
+
+        \param deputy_obj is a SheriffDeputy for the deputy that owns the
+        command.
+        \param cmd_obj is a SheriffDeputyCommand for the new command.
+        """
+        return
+
+    @abstractmethod
+    def command_removed(self, deputy_obj, cmd_obj):
+        """Called when a command is removed from the sheriff.
+
+        \param deputy_obj is a SheriffDeputy for the deputy that owned the command.
+        \param cmd_obj is a SheriffDeputyCommand for the removed command.
+        """
+        return
+
+    @abstractmethod
+    def command_status_changed(self, cmd_obj, old_status, new_status):
+        """Called when the status of a command changes (e.g., running, stopped,
+        etc.).
+
+        \param cmd_obj is a SheriffDeputyCommand for the command.
+        \param old_status indicates the old command status.
+        \param new_status indicates the new command status.
+        """
+        return
+
+    @abstractmethod
+    def command_group_changed(self, cmd_obj):
+        """Called when a command is moved into a different group.
+
+        \param cmd_obj the command whose group changes.
+        """
+        return
+
 class Sheriff(object):
     """Controls deputies and processes.
 
@@ -462,7 +516,7 @@ class Sheriff(object):
     For example, to be notified when the status of a command changes:
 
     \code
-    def on_command_status_changed(cmd_object, old_status, new_status):
+    def on_command_status_changed(cmd_obj, old_status, new_status):
         print("Command %s status changed from %s -> %s" % (cmd_obj.command_id,
             old_status, new_status)
 
@@ -500,46 +554,8 @@ class Sheriff(object):
         self._condvar = threading.Condition(self._lock)
         self._worker_thread.start()
 
-        # signals
-        self._to_emit = []
-
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when
-        # information from a deputy is received and processed.
-        # `deputy_info_received(deputy_object)`
-        #
-        # \param deputy_object is a SheriffDeputy corresponding to the updated deputy.
-        self.deputy_info_received = Signal()
-
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when a new
-        # command is added to the sheriff.
-        #
-        # \param deputy_object is a SheriffDeputy for the deputy that owns the
-        # command.
-        # \param cmd_object is a SheriffDeputyCommand for the new command.
-        self.command_added = Signal()
-
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when a command
-        # is removed from the sheriff.
-        # `command_removed(deputy_object, cmd_object)`
-        #
-        # \param deputy_object is a SheriffDeputy for the deputy that owned the command.
-        # \param cmd_object is a SheriffDeputyCommand for the removed command.
-        self.command_removed = Signal()
-
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when the
-        # status of a command changes (e.g., running, stopped, etc.).
-        # `command_status_changed(cmd_object, old_status, new_status)`
-        #
-        # \param cmd_object is a SheriffDeputyCommand for the command.
-        # \param old_status indicates the old command status.
-        # \param new_status indicates the new command status.
-        self.command_status_changed = Signal()
-
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when a command
-        # is moved into a different group.
-        #
-        # \param cmd_object the command whose group changes.
-        self.command_group_changed = Signal()
+        self._listeners = []
+        self._queued_events = []
 
     def _get_or_make_deputy(self, deputy_name):
         # _lock should already be acquired
@@ -547,9 +563,30 @@ class Sheriff(object):
             self._deputies[deputy_name] = SheriffDeputy(deputy_name)
         return self._deputies[deputy_name]
 
-    def _schedule_emit(self, signal, *args):
-        # _lock should already be acquired
-        self._to_emit.append((signal, args))
+    def __deputy_info_received(self, deputy_obj):
+        self._queued_events.append(
+                lambda listener: listener.deputy_info_received(deputy_obj))
+        self._condvar.notify()
+
+    def __command_added(self, deputy_obj, cmd_obj):
+        self._queued_events.append(
+                lambda listener: listener.command_added(deputy_obj, cmd_obj))
+        self._condvar.notify()
+
+    def __command_removed(self, deputy_obj, cmd_obj):
+        self._queued_events.append(
+                lambda listener: listener.command_removed(deputy_obj, cmd_obj))
+        self._condvar.notify()
+
+    def __command_status_changed(self, cmd_obj, old_status, new_status):
+        self._queued_events.append(
+                lambda listener: listener.command_status_changed(cmd_obj,
+                    old_status, new_status))
+        self._condvar.notify()
+
+    def __command_group_changed(self, cmd_obj):
+        self._queued_events.append(
+                lambda listener: listener.command_group_changed(cmd_obj))
         self._condvar.notify()
 
     def _maybe_emit_status_change_signals(self, deputy, status_changes):
@@ -558,11 +595,11 @@ class Sheriff(object):
             if old_status == new_status:
                 continue
             if old_status is None:
-                self._schedule_emit(self.command_added, deputy, cmd)
+                self.__command_added(deputy, cmd)
             elif new_status is None:
-                self._schedule_emit(self.command_removed, deputy, cmd)
+                self.__command_removed(deputy, cmd)
             else:
-                self._schedule_emit(self.command_status_changed, cmd, old_status, new_status)
+                self.__command_status_changed(cmd, old_status, new_status)
 
     def _get_command_deputy(self, cmd):
         # _lock should already be acquired
@@ -570,6 +607,18 @@ class Sheriff(object):
             if deputy.owns_command(cmd):
                 return deputy
         raise KeyError()
+
+    def add_listener(self, sheriff_listener):
+        """Adds a listener that gets notified of certain Sheriff activity.
+
+        @param sheriff_listener a SheriffListener object.
+        """
+        with self._lock:
+            self._listeners.append(sheriff_listener)
+
+    def remove_listener(self, sheriff_listener):
+        with self._lock:
+            self._listeners.remove(sheriff_listener)
 
     def on_pmd_info(self, _, data):
         try:
@@ -595,7 +644,7 @@ class Sheriff(object):
 
             status_changes = deputy._update_from_deputy_info(info_msg)
 
-            self._schedule_emit(self.deputy_info_received, deputy)
+            self.__deputy_info_received(deputy)
             self._maybe_emit_status_change_signals(deputy, status_changes)
 
     def on_pmd_orders(self, _, data):
@@ -671,7 +720,7 @@ class Sheriff(object):
         newcmd.stop_signal = spec.stop_signal
         newcmd.stop_time_allowed = spec.stop_time_allowed
         dep._add_command(newcmd)
-        self._schedule_emit(self.command_added, dep, newcmd)
+        self.__command_added(dep, newcmd)
         self._send_orders()
         return newcmd
 
@@ -782,7 +831,7 @@ class Sheriff(object):
             old_group = cmd.group
             if old_group != group_name:
                 cmd._set_group(group_name)
-                self._schedule_emit(self.command_group_changed, cmd)
+                self.__command_group_changed(cmd)
 
     def set_auto_respawn(self, cmd, newauto_respawn):
         """Set if a deputy should auto-respawn the command when the command
@@ -1064,7 +1113,7 @@ class Sheriff(object):
     def _worker_thread(self):
         send_interval = 1.0
         next_send = time.time() + send_interval
-        to_emit = []
+        to_call = []
         while True:
             with self._lock:
                 if self._exiting:
@@ -1078,8 +1127,11 @@ class Sheriff(object):
                 if wait_time > 0:
                     self._condvar.wait(wait_time)
 
-                to_emit[:] = self._to_emit[:]
-                del self._to_emit[:]
+                # Queue up any listener notifications to invoke afer releasing the lock
+                for event in self._queued_events:
+                    for listener in self._listeners:
+                        to_call.append((event, listener))
+                del self._queued_events[:]
 
                 now = time.time()
                 if now > next_send and not self._is_observer:
@@ -1088,5 +1140,6 @@ class Sheriff(object):
                         next_send + send_interval)
 
             # Emit any queued up signals
-            for signal, args in to_emit:
-                signal(*args)
+            for func, listener in to_call:
+                func(listener)
+            del to_call[:]

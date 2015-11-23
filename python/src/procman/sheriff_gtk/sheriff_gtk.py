@@ -16,10 +16,10 @@ import pango
 
 from lcm import LCM
 
-import procman.sheriff as sheriff
-import procman.sheriff_config as sheriff_config
+from procman.sheriff import Sheriff, SheriffListener
 from procman.sheriff_cli import SheriffHeadless, find_procman_deputy_cmd
 from procman.sheriff_script import ScriptManager
+import procman.sheriff_config as sheriff_config
 
 import procman.sheriff_gtk.command_model as cm
 import procman.sheriff_gtk.command_treeview as ctv
@@ -58,6 +58,26 @@ def split_script_name(name):
         name = name.replace("//", "/")
     return name.split("/")
 
+class GuiSheriffListener(SheriffListener):
+    def __init__(self, sheriff_gtk):
+        self._sheriff_gtk = sheriff_gtk
+
+    def deputy_info_received(self, deputy_obj):
+        return
+
+    def command_added(self, deputy_obj, cmd_obj):
+        self._sheriff_gtk._schedule_cmds_update()
+
+    def command_removed(self, deputy_obj, cmd_obj):
+        self._sheriff_gtk._schedule_cmds_update()
+
+    def command_status_changed(self, cmd_obj, old_status, new_status):
+        self._sheriff_gtk._schedule_cmds_update()
+
+    def command_group_changed(self, cmd_obj):
+        self._sheriff_gtk._schedule_cmds_update()
+
+
 class SheriffGtk(object):
     def __init__ (self, lcm_obj):
         self.lcm_obj = lcm_obj
@@ -69,11 +89,9 @@ class SheriffGtk(object):
         self.spawned_deputy = None
 
         # create sheriff and subscribe to events
-        self.sheriff = sheriff.Sheriff (self.lcm_obj)
-        self.sheriff.command_added.connect(self._schedule_cmds_update)
-        self.sheriff.command_removed.connect(self._schedule_cmds_update)
-        self.sheriff.command_status_changed.connect(self._schedule_cmds_update)
-        self.sheriff.command_group_changed.connect(self._schedule_cmds_update)
+        self.sheriff_listener = GuiSheriffListener(self)
+        self.sheriff = Sheriff (self.lcm_obj)
+        self.sheriff.add_listener(self.sheriff_listener)
 
         self.script_manager = ScriptManager(self.sheriff)
         self.script_manager.script_started.connect(self._on_script_started)

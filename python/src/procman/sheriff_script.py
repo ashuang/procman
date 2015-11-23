@@ -16,7 +16,7 @@ from procman_lcm.cmd_status_t import cmd_status_t
 from procman_lcm.discovery_t import discovery_t
 import procman.sheriff_config as sheriff_config
 from procman.signal_slot import Signal
-from procman.sheriff import RUNNING, STOPPED_OK, STOPPED_ERROR
+from procman.sheriff import SheriffListener, RUNNING, STOPPED_OK, STOPPED_ERROR
 
 from procman.sheriff_config import ScriptNode, \
                                    WaitStatusActionNode, \
@@ -197,6 +197,26 @@ class ScriptExecutionContext(object):
         else:
             return action
 
+class SMSheriffListener(SheriffListener):
+    def __init__(self, script_manager):
+        self._script_manager = script_manager
+
+    def deputy_info_received(self, deputy_obj):
+        return
+
+    def command_added(self, deputy_obj, cmd_obj):
+        return
+
+    def command_removed(self, deputy_obj, cmd_obj):
+        return
+
+    def command_status_changed(self, cmd_obj, old_status, new_status):
+        self._script_manager.on_command_status_changed(cmd_obj, old_status,
+                new_status)
+
+    def command_group_changed(self, cmd_obj):
+        return
+
 class ScriptManager(object):
     def __init__(self, sheriff):
         self._sheriff = sheriff
@@ -216,7 +236,8 @@ class ScriptManager(object):
         self._condvar = threading.Condition(self._lock)
         self._worker_thread.start()
 
-        self._sheriff.command_status_changed.connect(self.on_command_status_changed)
+        self._sheriff_listener = SMSheriffListener(self)
+        self._sheriff.add_listener(self._sheriff_listener)
 
         ## [Signal](\ref procman.signal_slot.Signal) emitted when a script
         # is added.

@@ -5,6 +5,7 @@ import gobject
 import gtk
 import pango
 
+from procman.sheriff import SheriffListener
 from procman_lcm.output_t import output_t
 
 DEFAULT_MAX_KB_PER_SECOND = 500
@@ -38,6 +39,31 @@ class CommandExtraData(object):
         self.tb = gtk.TextBuffer (text_tag_table)
         self.printf_keep_count = [ 0, 0, 0, 0, 0, 0 ]
         self.printf_drop_count = 0
+
+class ConsoleSheriffListener(SheriffListener):
+    def __init__(self, scconsole):
+        self._scconsole = scconsole
+
+    def deputy_info_received(self, deputy_obj):
+        return
+
+    def command_added(self, deputy_obj, cmd_obj):
+        print("console.command_added")
+        glib.idle_add(self._scconsole._gtk_on_sheriff_command_added,
+                deputy_obj, cmd_obj)
+
+    def command_removed(self, deputy_obj, cmd_obj):
+        print("console.command_removed")
+        glib.idle_add(self._scconsole._gtk_on_sheriff_command_removed,
+                deputy_obj, cmd_obj)
+
+    def command_status_changed(self, cmd_obj, old_status, new_status):
+        print("console.command_status_changed")
+        glib.idle_add(self._scconsole._gtk_on_command_desired_changed,
+                cmd_obj, old_status, new_status)
+
+    def command_group_changed(self, cmd_obj):
+        return
 
 class SheriffCommandConsole(gtk.ScrolledWindow):
     def __init__(self, _sheriff, lc):
@@ -74,9 +100,8 @@ class SheriffCommandConsole(gtk.ScrolledWindow):
         # stdout rate limit maintenance events
         gobject.timeout_add (500, self._stdout_rate_limit_upkeep)
 
-        self.sheriff.command_added.connect(self._on_sheriff_command_added)
-        self.sheriff.command_removed.connect(self._on_sheriff_command_removed)
-        self.sheriff.command_status_changed.connect(self._on_command_desired_changed)
+        self.sheriff_listener = ConsoleSheriffListener(self)
+        self.sheriff.add_listener(self.sheriff_listener)
 
         self._cmd_extradata = {}
 
@@ -182,25 +207,15 @@ class SheriffCommandConsole(gtk.ScrolledWindow):
         self._add_text_to_buffer (self.sheriff_tb, now_str() +
                 "Added [%s] [%s] [%s]\n" % (deputy.name, command.command_id, command.exec_str))
 
-    def _on_sheriff_command_added (self, deputy, command):
-        glib.idle_add(self._gtk_on_sheriff_command_added, deputy, command)
-
     def _gtk_on_sheriff_command_removed (self, deputy, command):
         del self._cmd_extradata[command]
         self._add_text_to_buffer (self.sheriff_tb, now_str() +
                 "[%s] removed [%s] [%s]\n" % (deputy.name, command.command_id, command.exec_str))
 
-    def _on_sheriff_command_removed(self, deputy, command):
-        glib.idle_add(self._gtk_on_sheriff_command_removed, deputy, command)
-
     def _gtk_on_command_desired_changed (self, cmd,
             old_status, new_status):
         self._add_text_to_buffer (self.sheriff_tb, now_str() +
                 "[%s] new status: %s\n" % (cmd.command_id, new_status))
-
-    def _on_command_desired_changed(self, cmd, old_status, new_status):
-        glib.idle_add(self._gtk_on_command_desired_changed, cmd, old_status,
-                new_status)
 
     def on_tb_populate_menu(self,textview, menu):
         sep = gtk.SeparatorMenuItem()
