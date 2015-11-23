@@ -116,7 +116,8 @@ function(lcmtypes_build_c)
 
     # run lcm-gen now
     execute_process(COMMAND mkdir -p ${_lcmtypes_c_dir})
-    lcmgen(--lazy -c --c-cpath ${_lcmtypes_c_dir} --c-hpath ${_lcmtypes_c_dir} --cinclude lcmtypes ${_lcmtypes})
+    set(lcmgen_c_flags --lazy -c --c-cpath ${_lcmtypes_c_dir} --c-hpath ${_lcmtypes_c_dir} --cinclude lcmtypes ${_lcmtypes})
+    lcmgen(${lcmgen_c_flags})
 
     # get a list of all generated .c and .h files
     file(GLOB _lcmtypes_c_files ${_lcmtypes_c_dir}/*.c)
@@ -125,14 +126,14 @@ function(lcmtypes_build_c)
     # run lcm-gen at compile time
     add_custom_command(OUTPUT ${_lcmtypes_c_files} ${_lcmtypes_h_files}
         COMMAND sh -c '[ -d ${_lcmtypes_c_dir} ] || mkdir -p ${_lcmtypes_c_dir}'
-        COMMAND sh -c '${LCM_GEN_EXECUTABLE} --lazy -c ${_lcmtypes} --c-cpath ${_lcmtypes_c_dir} --c-hpath ${_lcmtypes_c_dir}'
+        COMMAND sh -c '${LCM_GEN_EXECUTABLE} ${lcmgen_c_flags}'
         DEPENDS ${_lcmtypes})
 
     # aggregate into a static library
     add_library(${libname} STATIC ${_lcmtypes_c_files})
-    set_source_files_properties(${_lcmtypes_c_files} PROPERTIES COMPILE_FLAGS "-fPIC")
     set_target_properties(${libname} PROPERTIES PREFIX "lib")
     set_target_properties(${libname} PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+    target_compile_options(${libname} PRIVATE -fPIC)
     target_include_directories(${libname} PUBLIC ${LCM_INCLUDE_DIRS} ${lcmtypes_include_build_path})
 
     # Copy the .h files into the output include/ path
@@ -141,7 +142,7 @@ function(lcmtypes_build_c)
       file(RELATIVE_PATH _h_relname ${CMAKE_CURRENT_BINARY_DIR}/lcmtypes/c/lcmtypes ${_lcmtype_h_file})
       set(_h_file_output ${lcmtypes_include_build_path}/lcmtypes/${_h_relname})
       add_custom_command(OUTPUT ${_h_file_output}
-                         COMMAND ${CMAKE_COMMAND} -E copy ${_lcmtype_h_file} ${_h_file_output}
+                         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_lcmtype_h_file} ${_h_file_output}
                          DEPENDS ${_lcmtype_h_file})
       list(APPEND _output_h_files ${_h_file_output})
     endforeach()
