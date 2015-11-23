@@ -2,7 +2,6 @@
 
 \defgroup python_api Python API
 """
-from abc import ABCMeta, abstractmethod
 import os
 import platform
 import sys
@@ -19,11 +18,10 @@ from procman_lcm.cmd_desired_t import cmd_desired_t
 from procman_lcm.cmd_status_t import cmd_status_t
 from procman_lcm.discovery_t import discovery_t
 import procman.sheriff_config as sheriff_config
-from procman.signal_slot import Signal
 
 def _dbg(text):
-#    return
-    sys.stderr.write("%s\n" % text)
+    return
+#    sys.stderr.write("%s\n" % text)
 
 def _warn(text):
     sys.stderr.write("[WARNING] %s\n" % text)
@@ -378,7 +376,7 @@ class SheriffDeputy(object):
             new_status = cmd.status()
             if old_status != new_status:
                 status_changes.append((cmd, old_status, new_status))
-        updated_ids = set([ cmd_msg.msg.command_id for cmd_msg in orders_msg.cmds ])
+        updated_ids = set([ cmd_msg.cmd.command_id for cmd_msg in orders_msg.cmds ])
         for cmd in self._commands.values():
             if cmd.command_id not in updated_ids:
                 old_status = cmd.status()
@@ -404,12 +402,12 @@ class SheriffDeputy(object):
             new_status = cmd.status()
         return ((cmd, old_status, new_status),)
 
-    def _make_orders_message(self, sheriff_name):
+    def _make_orders_message(self, sheriff_id):
         msg = orders_t()
         msg.utime = _now_utime()
         msg.host = self.name
         msg.ncmds = len(self._commands)
-        msg.sheriff_name = sheriff_name
+        msg.sheriff_id = sheriff_id
         for cmd in self._commands.values():
             if cmd.scheduled_for_removal:
                 msg.ncmds -= 1
@@ -433,15 +431,9 @@ class SheriffDeputy(object):
         msg.option_values = []
         return msg
 
-class SheriffListener:
+class SheriffListener(object):
     """Inherit from this class to receive notifications of Sheriff activity.
     """
-    __metaclass__ = ABCMeta
-
-    def __init__(self):
-        pass
-
-    @abstractmethod
     def deputy_info_received(self, deputy_obj):
         """Called when information from a deputy is received and processed.
 
@@ -449,7 +441,6 @@ class SheriffListener:
         """
         return
 
-    @abstractmethod
     def command_added(self, deputy_obj, cmd_obj):
         """Called when a new command is added to the sheriff.
 
@@ -459,7 +450,6 @@ class SheriffListener:
         """
         return
 
-    @abstractmethod
     def command_removed(self, deputy_obj, cmd_obj):
         """Called when a command is removed from the sheriff.
 
@@ -468,7 +458,6 @@ class SheriffListener:
         """
         return
 
-    @abstractmethod
     def command_status_changed(self, cmd_obj, old_status, new_status):
         """Called when the status of a command changes (e.g., running, stopped,
         etc.).
@@ -479,11 +468,27 @@ class SheriffListener:
         """
         return
 
-    @abstractmethod
     def command_group_changed(self, cmd_obj):
         """Called when a command is moved into a different group.
 
         \param cmd_obj the command whose group changes.
+        """
+        return
+
+    def sheriff_conflict_detected(self, other_sheriff_id):
+        """Called when a conflict with another sheriff is detected.
+
+        It is up to the user to determine how to resolve the conflict (e.g.,
+        demote a sheriff to an observer)
+
+        \param other_sheriff_id the id of the other sheriff
+        """
+        return
+
+    def observer_status_changed(self, is_observer):
+        """Called when the observer status of the sheriff changes.
+
+        \param is_observer True if the sheriff is now an observer.
         """
         return
 
@@ -537,7 +542,7 @@ class Sheriff(object):
         self._lcm.subscribe("PM_ORDERS", self.on_pmd_orders)
         self._deputies = {}
         self._is_observer = False
-        self._name = platform.node() + ":" + str(os.getpid()) + \
+        self._id = platform.node() + ":" + str(os.getpid()) + \
                 ":" + str(_now_utime())
 
         # publish a discovery message to query for existing deputies
@@ -564,29 +569,39 @@ class Sheriff(object):
         return self._deputies[deputy_name]
 
     def __deputy_info_received(self, deputy_obj):
-        self._queued_events.append(
-                lambda listener: listener.deputy_info_received(deputy_obj))
+        self._queued_events.append(lambda listener:
+                listener.deputy_info_received(deputy_obj))
         self._condvar.notify()
 
     def __command_added(self, deputy_obj, cmd_obj):
-        self._queued_events.append(
-                lambda listener: listener.command_added(deputy_obj, cmd_obj))
+        self._queued_events.append(lambda listener:
+                listener.command_added(deputy_obj, cmd_obj))
         self._condvar.notify()
 
     def __command_removed(self, deputy_obj, cmd_obj):
-        self._queued_events.append(
-                lambda listener: listener.command_removed(deputy_obj, cmd_obj))
+        self._queued_events.append(lambda listener:
+                listener.command_removed(deputy_obj, cmd_obj))
         self._condvar.notify()
 
     def __command_status_changed(self, cmd_obj, old_status, new_status):
-        self._queued_events.append(
-                lambda listener: listener.command_status_changed(cmd_obj,
+        self._queued_events.append(lambda listener:
+                listener.command_status_changed(cmd_obj,
                     old_status, new_status))
         self._condvar.notify()
 
     def __command_group_changed(self, cmd_obj):
-        self._queued_events.append(
-                lambda listener: listener.command_group_changed(cmd_obj))
+        self._queued_events.append(lambda listener:
+                listener.command_group_changed(cmd_obj))
+        self._condvar.notify()
+
+    def __sheriff_conflict_detected(self, other_sheriff_id):
+        self._queued_events.append(lambda listener:
+                listener.sheriff_conflict_detected(other_sheriff_id))
+        self._condvar.notify()
+
+    def __observer_status_changed(self, is_observer):
+        self._queued_events.append(lambda listener:
+                listener.observer_status_changed(is_observer))
         self._condvar.notify()
 
     def _maybe_emit_status_change_signals(self, deputy, status_changes):
@@ -624,7 +639,7 @@ class Sheriff(object):
         try:
             info_msg = deputy_info_t.decode(data)
         except ValueError:
-            print("invalid deputy_info_t message")
+            _warn("invalid deputy_info_t message")
             return
 
         now = _now_utime()
@@ -632,7 +647,7 @@ class Sheriff(object):
             # ignore old messages
             return
 
-        _dbg("received pmd info from [%s]" % info_msg.host)
+#        _dbg("received pmd info from [%s]" % info_msg.host)
 
         with self._lock:
             deputy = self._get_or_make_deputy(info_msg.host)
@@ -648,13 +663,19 @@ class Sheriff(object):
             self._maybe_emit_status_change_signals(deputy, status_changes)
 
     def on_pmd_orders(self, _, data):
-        if not self._is_observer:
+        try:
+            orders_msg = orders_t.decode(data)
+        except ValueError:
+            _warn("Invalid orders_t message")
             return
-        orders_msg = orders_t.decode(data)
+
         with self._lock:
-            deputy = self._get_or_make_deputy(orders_msg.host)
-            status_changes = deputy._update_from_deputy_orders(orders_msg)
-            self._maybe_emit_status_change_signals(deputy, status_changes)
+            if self._is_observer:
+                deputy = self._get_or_make_deputy(orders_msg.host)
+                status_changes = deputy._update_from_deputy_orders(orders_msg)
+                self._maybe_emit_status_change_signals(deputy, status_changes)
+            elif self._id != orders_msg.sheriff_id:
+                self.__sheriff_conflict_detected(orders_msg.sheriff_id)
 
     def shutdown(self):
         # signal worker thread
@@ -665,13 +686,13 @@ class Sheriff(object):
         # wait for worker thread to exit
         self._worker_thread.join()
 
-    def get_name(self):
-        """Retrieve the sheriff name, as self reported to deputies.
-        The sheriff name is automatically set to a combination of the
-        hostname, current PID, and the time the sheriff was created.
+    def get_id(self):
+        """Retrieve the sheriff id.
+        The sheriff id is designed to be globally unique, and used to detect
+        conflicting sheriffs.
         """
         with self._lock:
-            return self._name
+            return self._id
 
     def _send_orders(self):
         # self._lock should already be acquired
@@ -680,7 +701,7 @@ class Sheriff(object):
         for deputy in self._deputies.values():
             # only send orders to a deputy if we've heard from it.
             if deputy.last_update_utime > 0:
-                msg = deputy._make_orders_message(self._name)
+                msg = deputy._make_orders_message(self._id)
                 self._lcm.publish("PM_ORDERS", msg.encode())
 
     def send_orders(self):
@@ -905,7 +926,11 @@ class Sheriff(object):
         False if it should leave it.
         """
         with self._lock:
+            if self._is_observer == is_observer:
+                return
+
             self._is_observer = is_observer
+            self.__observer_status_changed(is_observer)
 
     def is_observer(self):
         """Check if the sheriff is in observer mode.

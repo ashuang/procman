@@ -40,32 +40,7 @@ class CommandExtraData(object):
         self.printf_keep_count = [ 0, 0, 0, 0, 0, 0 ]
         self.printf_drop_count = 0
 
-class ConsoleSheriffListener(SheriffListener):
-    def __init__(self, scconsole):
-        self._scconsole = scconsole
-
-    def deputy_info_received(self, deputy_obj):
-        return
-
-    def command_added(self, deputy_obj, cmd_obj):
-        print("console.command_added")
-        glib.idle_add(self._scconsole._gtk_on_sheriff_command_added,
-                deputy_obj, cmd_obj)
-
-    def command_removed(self, deputy_obj, cmd_obj):
-        print("console.command_removed")
-        glib.idle_add(self._scconsole._gtk_on_sheriff_command_removed,
-                deputy_obj, cmd_obj)
-
-    def command_status_changed(self, cmd_obj, old_status, new_status):
-        print("console.command_status_changed")
-        glib.idle_add(self._scconsole._gtk_on_command_desired_changed,
-                cmd_obj, old_status, new_status)
-
-    def command_group_changed(self, cmd_obj):
-        return
-
-class SheriffCommandConsole(gtk.ScrolledWindow):
+class SheriffCommandConsole(gtk.ScrolledWindow, SheriffListener):
     def __init__(self, _sheriff, lc):
         super(SheriffCommandConsole, self).__init__()
 
@@ -100,8 +75,7 @@ class SheriffCommandConsole(gtk.ScrolledWindow):
         # stdout rate limit maintenance events
         gobject.timeout_add (500, self._stdout_rate_limit_upkeep)
 
-        self.sheriff_listener = ConsoleSheriffListener(self)
-        self.sheriff.add_listener(self.sheriff_listener)
+        self.sheriff.add_listener(self)
 
         self._cmd_extradata = {}
 
@@ -112,6 +86,18 @@ class SheriffCommandConsole(gtk.ScrolledWindow):
             self.sheriff_tb.get_tag_table().add(tt)
 
         self.set_output_rate_limit(DEFAULT_MAX_KB_PER_SECOND)
+
+    def command_added(self, deputy_obj, cmd_obj):
+        glib.idle_add(self._gtk_on_sheriff_command_added,
+                deputy_obj, cmd_obj)
+
+    def command_removed(self, deputy_obj, cmd_obj):
+        glib.idle_add(self._gtk_on_sheriff_command_removed,
+                deputy_obj, cmd_obj)
+
+    def command_status_changed(self, cmd_obj, old_status, new_status):
+        glib.idle_add(self._gtk_on_command_desired_changed,
+                cmd_obj, old_status, new_status)
 
     def get_background_color(self):
         return self.base_color

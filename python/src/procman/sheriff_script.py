@@ -1,11 +1,7 @@
 import os
-import platform
 import sys
 import time
-import random
-import signal
 import threading
-import thread
 
 import lcm
 from procman_lcm.cmd_t import cmd_t
@@ -15,7 +11,6 @@ from procman_lcm.cmd_desired_t import cmd_desired_t
 from procman_lcm.cmd_status_t import cmd_status_t
 from procman_lcm.discovery_t import discovery_t
 import procman.sheriff_config as sheriff_config
-from procman.signal_slot import Signal
 from procman.sheriff import SheriffListener, RUNNING, STOPPED_OK, STOPPED_ERROR
 
 from procman.sheriff_config import ScriptNode, \
@@ -25,11 +20,9 @@ from procman.sheriff_config import ScriptNode, \
                                    RunScriptActionNode, \
                                    escape_str
 
-from procman.signal_slot import Signal
-
 def _dbg(text):
-#    return
-    sys.stderr.write("%s\n" % text)
+    return
+#    sys.stderr.write("%s\n" % text)
 
 class StartStopRestartAction(object):
     """Script action to start, stop, or restart a command or group.
@@ -217,6 +210,49 @@ class SMSheriffListener(SheriffListener):
     def command_group_changed(self, cmd_obj):
         return
 
+class ScriptListener(object):
+    def script_added(self, script_object):
+        """Called when a script
+        is added.
+
+        \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object.
+        """
+        return
+
+    def script_removed(self, script_object):
+        """Called when a script is removed.
+
+        \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object.
+        """
+        return
+
+    def script_started(self, script_object):
+        """Called when a script begins executing.
+
+        \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object.
+        """
+        return
+
+    def script_action_executing(self, script_object, action):
+        """Called when a single action in a script begins to run.  (e.g., start
+        a command)
+
+        \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object
+        \param action one of:
+          - [StartStopRestartAction](\ref procman.sheriff_script.StartStopRestartAction),
+          - [WaitMsAction](\ref procman.sheriff_script.WaitMsAction),
+          - [WaitStatusAction](\ref procman.sheriff_script.WaitStatusAction),
+          - [RunScriptAction](\ref procman.sheriff_script.RunScriptAction)
+        """
+        return
+
+    def script_finished(self, script_object):
+        """Called when a script finishes execution.
+
+        \param script_object a SheriffScript object
+        """
+        return
+
 class ScriptManager(object):
     def __init__(self, sheriff):
         self._sheriff = sheriff
@@ -239,42 +275,46 @@ class ScriptManager(object):
         self._sheriff_listener = SMSheriffListener(self)
         self._sheriff.add_listener(self._sheriff_listener)
 
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when a script
-        # is added.
-        #
-        # \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object.
-        self.script_added = Signal()
+        self._listeners = []
+        self._queued_events = []
 
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when a script
-        # is removed.
-        #
-        # \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object.
-        self.script_removed = Signal()
 
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when a script
-        # begins executing.
-        # `script_started(script_object)`
-        #
-        # \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object.
-        self.script_started = Signal()
+    def __script_added(self, script_object):
+        self._queued_events.append(lambda listener:
+                listener.script_added(script_object))
+        self._condvar.notify()
 
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when a single
-        # action in a script begins to run.  (e.g., start a command)
-        # `script_action_executing(script_object, action)`
-        #
-        # \param script_object a [SheriffScript](\ref procman.sheriff_script.SheriffScript) object
-        # \param action one of: [StartStopRestartAction](\ref procman.sheriff_script.StartStopRestartAction),
-        # [WaitMsAction](\ref procman.sheriff_script.WaitMsAction),
-        # [WaitStatusAction](\ref procman.sheriff_script.WaitStatusAction),
-        # [RunScriptAction](\ref procman.sheriff_script.RunScriptAction)
-        self.script_action_executing = Signal()
+    def __script_removed(self, script_object):
+        self._queued_events.append(lambda listener:
+                listener.script_removed(script_object))
+        self._condvar.notify()
 
-        ## [Signal](\ref procman.signal_slot.Signal) emitted when a script
-        # finishes execution.
-        # `script_finished(script_object)`
-        #
-        # \param script_object a SheriffScript object
-        self.script_finished = Signal()
+    def __script_started(self, script_object):
+        self._queued_events.append(lambda listener:
+                listener.script_started(script_object))
+        self._condvar.notify()
+
+    def __script_action_executing(self, script_object, action):
+        self._queued_events.append(lambda listener:
+                listener.script_action_executing(script_object, action))
+        self._condvar.notify()
+
+    def __script_finished(self, script_object):
+        self._queued_events.append(lambda listener:
+                listener.script_finished(script_object))
+        self._condvar.notify()
+
+    def add_listener(self, script_listener):
+        """Adds a listener that gets notified of script activity.
+
+        @param script_listener a ScriptListener object.
+        """
+        with self._lock:
+            self._listeners.append(script_listener)
+
+    def remove_listener(self, script_listener):
+        with self._lock:
+            self._listeners.remove(script_listener)
 
     def get_active_script(self):
         """Retrieve the currently executing script
@@ -316,7 +356,7 @@ class ScriptManager(object):
             if script.name == new_script.name:
                 raise ValueError("Script [%s] already exists", script.name)
         self._scripts.append(new_script)
-        self._schedule_emit(self.script_added, new_script)
+        self.__script_added(new_script)
 
     def add_script(self, script):
         """Add a new script to the sheriff.
@@ -332,7 +372,7 @@ class ScriptManager(object):
 
         if script in self._scripts:
             self._scripts.remove(script)
-            self._schedule_emit(self.script_removed, script)
+            self.__script_removed(script)
         else:
             raise ValueError("Unknown script [%s]", script.name)
 
@@ -417,13 +457,12 @@ class ScriptManager(object):
         self._waiting_for_status = None
         self._next_action_time = 0
         if script:
-            self._schedule_emit(self.script_finished, script)
+            self.__script_finished(script)
 
     def _check_wait_action_status(self):
-        _dbg("_check_wait_action_status")
+#        _dbg("_check_wait_action_status")
         # self._lock should already be acquired
         if not self._waiting_on_commands:
-            _dbg("not waiting on command")
             return
 
         if self._waiting_for_status == "running":
@@ -476,8 +515,8 @@ class ScriptManager(object):
 
         assert action.action_type != "run_script"
 
-        self._schedule_emit(self.script_action_executing,
-                self._active_script_context.script, action)
+        self.__script_action_executing(self._active_script_context.script,
+                action)
 
         # fixed time wait
         if action.action_type == "wait_ms":
@@ -533,9 +572,7 @@ class ScriptManager(object):
             self._active_script_context = ScriptExecutionContext(self, script)
 
             self._next_action_time = time.time()
-            self._condvar.notify()
-
-            self._schedule_emit(self.script_started, script)
+            self.__script_started(script)
 
     def abort_script(self):
         """Cancels execution of the active script."""
@@ -567,7 +604,7 @@ class ScriptManager(object):
         self._worker_thread.join()
 
     def _worker_thread(self):
-        to_emit = []
+        to_call = []
         while True:
             with self._lock:
                 if self._exiting:
@@ -585,15 +622,13 @@ class ScriptManager(object):
                         time.time() > self._next_action_time:
                     self._execute_next_script_action()
 
-                to_emit[:] = self._to_emit[:]
-                del self._to_emit[:]
+                # Queue up any listener notifications to invoke afer releasing the lock
+                for event in self._queued_events:
+                    for listener in self._listeners:
+                        to_call.append((event, listener))
+                del self._queued_events[:]
 
             # Emit any queued up signals
-            for signal, args in to_emit:
-                signal(*args)
-
-    def _schedule_emit(self, signal, *args):
-        # _lock should already be acquired
-        self._to_emit.append((signal, args))
-        self._condvar.notify()
-
+            for func, listener in to_call:
+                func(listener)
+            del to_call[:]

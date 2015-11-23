@@ -58,27 +58,7 @@ def split_script_name(name):
         name = name.replace("//", "/")
     return name.split("/")
 
-class GuiSheriffListener(SheriffListener):
-    def __init__(self, sheriff_gtk):
-        self._sheriff_gtk = sheriff_gtk
-
-    def deputy_info_received(self, deputy_obj):
-        return
-
-    def command_added(self, deputy_obj, cmd_obj):
-        self._sheriff_gtk._schedule_cmds_update()
-
-    def command_removed(self, deputy_obj, cmd_obj):
-        self._sheriff_gtk._schedule_cmds_update()
-
-    def command_status_changed(self, cmd_obj, old_status, new_status):
-        self._sheriff_gtk._schedule_cmds_update()
-
-    def command_group_changed(self, cmd_obj):
-        self._sheriff_gtk._schedule_cmds_update()
-
-
-class SheriffGtk(object):
+class SheriffGtk(SheriffListener):
     def __init__ (self, lcm_obj):
         self.lcm_obj = lcm_obj
         self.cmds_update_scheduled = False
@@ -89,28 +69,20 @@ class SheriffGtk(object):
         self.spawned_deputy = None
 
         # create sheriff and subscribe to events
-        self.sheriff_listener = GuiSheriffListener(self)
         self.sheriff = Sheriff (self.lcm_obj)
-        self.sheriff.add_listener(self.sheriff_listener)
+        self.sheriff.add_listener(self)
 
         self.script_manager = ScriptManager(self.sheriff)
-        self.script_manager.script_started.connect(self._on_script_started)
-        self.script_manager.script_action_executing.connect(self._on_script_action_executing)
-        self.script_manager.script_finished.connect(self._on_script_finished)
-        self.script_manager.script_added.connect(self._on_script_added)
-        self.script_manager.script_removed.connect(self._on_script_removed)
+        self.script_manager.add_listener(self)
 
         # update very soon
         gobject.timeout_add(100, lambda *s: self.hosts_ts.update() and False)
         gobject.timeout_add(100, lambda *s: self._schedule_cmds_update() and False)
 
         # and then periodically
-        gobject.timeout_add (1000, self._maybe_send_orders)
+        gobject.timeout_add (1000, self._check_spawned_deputy)
         gobject.timeout_add (1000,
                 lambda *s: self._schedule_cmds_update () or True)
-
-#        self.lcm_obj.subscribe ("PM_ORDERS", self.on_procman_orders)
-#        TODO subscribe to PM_ORDERS
 
         # setup GUI
 
@@ -219,6 +191,59 @@ class SheriffGtk(object):
 
         self.window.show_all()
 
+    def command_added(self, deputy_obj, cmd_obj):
+        self._schedule_cmds_update()
+
+    def command_removed(self, deputy_obj, cmd_obj):
+        self._schedule_cmds_update()
+
+    def command_status_changed(self, cmd_obj, old_status, new_status):
+        self._schedule_cmds_update()
+
+    def command_group_changed(self, cmd_obj):
+        self._schedule_cmds_update()
+
+    def script_added(self, script_object):
+        glib.idle_add(self._gtk_on_script_added, script_object)
+
+    def sheriff_conflict_detected(self, other_sheriff_id):
+        glib.idle_add(self._gtk_sheriff_conflict_detected)
+
+    def _gtk_sheriff_conflict_detected(self):
+        # detected the presence of another sheriff that is not this one.
+        # self-demote to prevent command thrashing
+        self.sheriff.set_observer (True)
+
+        self.statusbar.push (self.statusbar.get_context_id ("main"),
+                "WARNING: multiple sheriffs detected!  Switching to observer mode");
+        gobject.timeout_add (6000,
+                lambda *s: self.statusbar.pop (self.statusbar.get_context_id ("main")))
+
+    def observer_status_changed(self, is_observer):
+        glib.idle_add(self._gtk_observer_status_changed, is_observer)
+
+    def _gtk_observer_status_changed(self, is_observer):
+        self._update_menu_item_sensitivities()
+
+        if is_observer:
+            self.window.set_title("Procman Observer")
+        else:
+            self.window.set_title("Procman Sheriff")
+
+        self.is_observer_cmi.set_active(is_observer)
+
+    def script_removed(self, script_object):
+        glib.idle_add(self._gtk_on_script_removed, script_object)
+
+    def script_started(self, script_object):
+        glib.idle_add(self._gtk_on_script_started, script_object)
+
+    def script_action_executing(self, script_object, action):
+        glib.idle_add(self._gtk_on_script_action_executing, script_object, action)
+
+    def script_finished(self, script_object):
+        glib.idle_add(self._gtk_on_script_finished, script_object)
+
     def on_preferences_mi_activate(self, *args):
         sd.do_preferences_dialog(self, self.window)
 
@@ -299,11 +324,11 @@ class SheriffGtk(object):
 
     def _check_spawned_deputy(self):
         if not self.spawned_deputy:
-            return
+            return True
 
         self.spawned_deputy.poll()
         if self.spawned_deputy.returncode is None:
-            return
+            return True
 
         returncode_msgs = { \
                 0 : "Terminated",
@@ -320,19 +345,7 @@ class SheriffGtk(object):
                 gtk.BUTTONS_OK, "Spawned deputy exited prematurely: %s" % msg)
         dialog.run()
         dialog.destroy()
-
-    def set_observer (self, is_observer):
-        self.sheriff.set_observer (is_observer)
-
-        self._update_menu_item_sensitivities ()
-
-        if is_observer:
-            self.window.set_title ("Procman Observer")
-        else:
-            self.window.set_title ("Procman Sheriff")
-
-        if self.is_observer_cmi != is_observer:
-            self.is_observer_cmi.set_active (is_observer)
+        return True
 
     def run_script(self, menuitem, script, script_done_action = None):
         self.script_done_action = script_done_action
@@ -354,18 +367,11 @@ class SheriffGtk(object):
             self.statusbar_context_script_msg = self.statusbar.push(cid, \
                     "Script %s: start" % script.name)
 
-    def _on_script_started(self, script):
-        glib.idle_add(self._gtk_on_script_started, script)
-
     def _gtk_on_script_action_executing(self, script, action):
-        print("_gtk_on_script_action_executing")
         cid = self.statusbar_context_script
         self.statusbar.pop(cid)
         msg = "Action: %s" % str(action)
         self.statusbar_context_script_msg = self.statusbar.push(cid, msg)
-
-    def _on_script_action_executing(self, script, action):
-        glib.idle_add(self._gtk_on_script_action_executing, script, action)
 
     def _gtk_on_script_finished(self, script):
         self._update_menu_item_sensitivities()
@@ -380,10 +386,7 @@ class SheriffGtk(object):
             gtk.main_quit()
         elif self.script_done_action == "observe":
             self.script_done_action = None
-            self.set_observer(True)
-
-    def _on_script_finished(self, script):
-        glib.idle_add(self._gtk_on_script_finished, script)
+            self.sheriff.set_observer(True)
 
     def on_abort_script_mi_activate(self, menuitem):
         self.script_manager.abort_script()
@@ -474,9 +477,6 @@ class SheriffGtk(object):
     def _gtk_on_script_added(self, script):
         self._maybe_add_script_menu_item(script)
 
-    def _on_script_added(self, script):
-        glib.idle_add(self._gtk_on_script_added, script)
-
     def _gtk_on_script_removed(self, script):
         name_parts = split_script_name(script.name)
         for menu in [ self.scripts_menu, self.edit_scripts_menu, self.remove_scripts_menu ]:
@@ -485,9 +485,6 @@ class SheriffGtk(object):
         if not self.script_manager.get_scripts():
             self.edit_script_mi.set_sensitive(False)
             self.remove_script_mi.set_sensitive(False)
-
-    def _on_script_removed(self, script):
-        glib.idle_add(self._gtk_on_script_removed, script)
 
     def load_config(self, cfg):
         self.sheriff.load_config(cfg, False)
@@ -548,7 +545,7 @@ class SheriffGtk(object):
         self.save_dlg = None
 
     def on_is_observer_cmi_toggled(self, menu_item):
-        self.set_observer(menu_item.get_active ())
+        self.sheriff.set_observer(menu_item.get_active ())
 
     def on_spawn_deputy_mi_activate(self, *args):
         print("Spawn deputy!")
@@ -599,25 +596,6 @@ class SheriffGtk(object):
         elif len (selected_cmds) == 0:
             self.cmd_console.show_sheriff_buffer()
         self._update_menu_item_sensitivities ()
-
-    def _maybe_send_orders (self):
-        self._check_spawned_deputy()
-        return True
-
-#    TODO do this for orders_t
-#    # LCM handlers
-#    def on_procman_orders (self, channel, data):
-#        msg = orders_t.decode (data)
-#        if not self.sheriff.is_observer () and \
-#                self.sheriff.get_name() != msg.sheriff_name:
-#            # detected the presence of another sheriff that is not this one.
-#            # self-demote to prevent command thrashing
-#            self.set_observer (True)
-#
-#            self.statusbar.push (self.statusbar.get_context_id ("main"),
-#                    "WARNING: multiple sheriffs detected!  Switching to observer mode");
-#            gobject.timeout_add (6000,
-#                    lambda *s: self.statusbar.pop (self.statusbar.get_context_id ("main")))
 
 def usage():
     sys.stdout.write(
@@ -717,7 +695,7 @@ def main():
     if use_gui:
         gui = SheriffGtk(lcm_obj)
         if observer:
-            gui.set_observer(True)
+            gui.sheriff.set_observer(True)
         if spawn_deputy:
             gui.on_spawn_deputy_mi_activate()
         if cfg is not None:

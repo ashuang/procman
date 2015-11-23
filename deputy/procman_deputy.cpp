@@ -41,7 +41,7 @@ namespace procman {
 #define MIN_RESPAWN_DELAY_MS 10
 #define MAX_RESPAWN_DELAY_MS 1000
 #define RESPAWN_BACKOFF_RATE 2
-#define DISCOVERY_TIME_MS 1500
+#define DISCOVERY_TIME_MS 500
 
 #define DEFAULT_STOP_SIGNAL 2
 #define DEFAULT_STOP_TIME_ALLOWED 7
@@ -831,8 +831,10 @@ void ProcmanDeputy::OnDiscoveryTimer() {
     msg.nonce = deputy_pid_;
     lcm_->publish("PM_DISCOVER", &msg);
   } else {
+//    dbgt("Discovery period finished. Activating deputy.");
+
     // Discovery period is over. Stop subscribing to deputy info messages, and
-    // instead start subscribing to sheriff orders.
+    // start subscribing to sheriff orders.
     discovery_timer_.stop();
 
     lcm_->unsubscribe(info_sub_);

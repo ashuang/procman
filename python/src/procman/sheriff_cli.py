@@ -1,15 +1,9 @@
 import getopt
 import os
-import pickle
-import platform
-import random
 import signal
 import subprocess
 import sys
-import thread
-import threading
 import time
-import traceback
 
 import lcm
 from procman_lcm.cmd_t import cmd_t
@@ -19,8 +13,7 @@ from procman_lcm.cmd_desired_t import cmd_desired_t
 from procman_lcm.cmd_status_t import cmd_status_t
 from procman_lcm.discovery_t import discovery_t
 import procman.sheriff_config as sheriff_config
-from procman.sheriff_script import ScriptManager
-from procman.signal_slot import Signal
+from procman.sheriff_script import ScriptManager, ScriptListener
 from procman.sheriff import Sheriff
 
 try:
@@ -39,7 +32,7 @@ def find_procman_deputy_cmd():
             return fname
     return None
 
-class SheriffHeadless(object):
+class SheriffHeadless(ScriptListener):
     def __init__(self, lcm_obj, config, spawn_deputy, script_name, script_done_action):
         self.sheriff = Sheriff(lcm_obj)
         self.script_manager = ScriptManager(self.sheriff)
@@ -51,23 +44,22 @@ class SheriffHeadless(object):
         self.mainloop = None
         self.lcm_obj = lcm_obj
         self._should_exit = False
-#        self.lcm_obj.subscribe ("PM_ORDERS", self._on_procman_orders)
         if script_done_action is None:
             self.script_done_action = "exit"
         else:
             self.script_done_action = script_done_action
 
-    def _terminate_spawned_deputy(self):
-        if not self.spawned_deputy:
-            return
-
-        print("Terminating local deputy..")
-        try:
-            self.spawned_deputy.terminate()
-        except AttributeError: # python 2.4, 2.5 don't have Popen.terminate()
-            os.kill(self.spawned_deputy.pid, signal.SIGTERM)
-            self.spawned_deputy.wait()
+    def _shutdown(self):
+        if self.spawned_deputy:
+            print("Terminating local deputy..")
+            try:
+                self.spawned_deputy.terminate()
+            except AttributeError:
+                os.kill(self.spawned_deputy.pid, signal.SIGTERM)
+                self.spawned_deputy.wait()
         self.spawned_deputy = None
+        self.sheriff.shutdown()
+        self.script_manager.shutdown()
 
     def _start_script(self):
         if not self.script:
@@ -76,25 +68,17 @@ class SheriffHeadless(object):
         errors = self.script_manager.execute_script(self.script)
         if errors:
             print("Script failed to run.  Errors detected:\n" + "\n".join(errors))
-            self._terminate_spawned_deputy()
+            self._shutdown()
             sys.exit(1)
         return False
 
-    def _on_script_finished(self, *args):
+    def script_finished(self, script_object):
+        # Overriden from ScriptListener. Called by ScriptManager when a
+        # script is finished.
         if self.script_done_action == "exit":
             self._request_exit()
         elif self.script_done_action == "observe":
             self.sheriff.set_observer(True)
-
-#    def _on_procman_orders(self, channel, data):
-#        if self.sheriff.is_observer():
-#            return
-#
-#        msg = orders_t.decode(data)
-#        if self.sheriff.name != msg.sheriff_name:
-#            # detected the presence of another sheriff that is not this one.
-#            # self-demote to prevent command thrashing
-#            self.sheriff.set_observer(True)
 
     def _request_exit(self):
         self._should_exit = True
@@ -121,16 +105,16 @@ class SheriffHeadless(object):
             self.script = self.script_manager.get_script(self.script_name)
             if not self.script:
                 print "No such script: %s" % self.script_name
-                self._terminate_spawned_deputy()
+                self._shutdown()
                 sys.exit(1)
             errors = self.script_manager.check_script_for_errors(self.script)
             if errors:
                 print "Unable to run script.  Errors were detected:\n\n"
                 print "\n    ".join(errors)
-                self._terminate_spawned_deputy()
+                self._shutdown()
                 sys.exit(1)
 
-            self.script_manager.script_finished.connect(self._on_script_finished)
+            self.script_manager.add_listener(self)
 
         signal.signal(signal.SIGINT, lambda *s: self._request_exit())
         signal.signal(signal.SIGTERM, lambda *s: self._request_exit())
@@ -149,9 +133,7 @@ class SheriffHeadless(object):
             pass
         finally:
             print("Sheriff terminating..")
-            self._terminate_spawned_deputy()
-            self.sheriff.shutdown()
-            self.script_manager.shutdown()
+            self._shutdown()
 
         return 0
 

@@ -2,14 +2,13 @@ package procman_lcm;
 
 /*
    message sent by the procman sheriff to provide instructions for a procman
-   deputy.  As long as the deputy reports a status inconsistent with the
-   orders, the orders will periodically be transmitted
+   deputy.
 */
 
 struct orders_t {
     int64_t utime;
     string host;
-    string sheriff_name;
+    string sheriff_id;
 
     int32_t ncmds;
     cmd_desired_t cmds[ncmds];
