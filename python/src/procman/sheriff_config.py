@@ -147,7 +147,7 @@ class CommandNode(object):
     def __init__ (self):
         self.attributes = { \
                 "exec" : None,
-                "host" : None,
+                "deputy" : None,
                 "group" : "",
                 "nickname" : "",
                 "stop_signal" : 0,
@@ -394,7 +394,7 @@ class Parser:
         attrib_name = self._cur_tok.val
 
         attribs = { "exec" : TokString,
-                "host" : TokString,
+                "deputy" : TokString,
                 "auto_respawn" : TokString,
                 "group" : TokString,
                 "stop_signal" : TokInteger,

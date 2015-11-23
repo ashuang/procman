@@ -7,7 +7,7 @@ COL_CMDS_TV_OBJ, \
 COL_CMDS_TV_EXEC, \
 COL_CMDS_TV_FULL_GROUP, \
 COL_CMDS_TV_COMMAND_ID, \
-COL_CMDS_TV_HOST, \
+COL_CMDS_TV_DEPUTY, \
 COL_CMDS_TV_STATUS_ACTUAL, \
 COL_CMDS_TV_CPU_USAGE, \
 COL_CMDS_TV_MEM_VSIZE, \
@@ -21,7 +21,7 @@ class SheriffCommandModel(gtk.TreeStore):
                 gobject.TYPE_STRING, # command executable
                 gobject.TYPE_STRING, # group name
                 gobject.TYPE_STRING, # display name
-                gobject.TYPE_STRING, # host name
+                gobject.TYPE_STRING, # deputy id
                 gobject.TYPE_STRING, # status actual
                 gobject.TYPE_STRING, # CPU usage
                 gobject.TYPE_INT,    # memory vsize
@@ -57,7 +57,7 @@ class SheriffCommandModel(gtk.TreeStore):
                       exec_val,                 # COL_CMDS_TV_EXEC
                       group_name,               # COL_CMDS_TV_FULL_GROUP
                       name_parts[-1],           # COL_CMDS_TV_COMMAND_ID
-                      "",                       # COL_CMDS_TV_HOST
+                      "",                       # COL_CMDS_TV_DEPUTY
                       "",                       # COL_CMDS_TV_STATUS_ACTUAL
                       "",                       # COL_CMDS_TV_CPU_USAGE
                       0,                        # COL_CMDS_TV_MEM_VSIZE
@@ -99,7 +99,7 @@ class SheriffCommandModel(gtk.TreeStore):
                 COL_CMDS_TV_EXEC, cmd.exec_str,
                 COL_CMDS_TV_COMMAND_ID, command_id,
                 COL_CMDS_TV_STATUS_ACTUAL, cmd.status (),
-                COL_CMDS_TV_HOST, cmd_deps[cmd].name,
+                COL_CMDS_TV_DEPUTY, cmd_deps[cmd].deputy_id,
                 COL_CMDS_TV_CPU_USAGE, cpu_str,
                 COL_CMDS_TV_MEM_VSIZE, mem_usage,
                 COL_CMDS_TV_AUTO_RESPAWN, cmd.auto_respawn)
@@ -146,11 +146,11 @@ class SheriffCommandModel(gtk.TreeStore):
         else:
             status_str = "Mixed"
 
-        # aggregate host information
+        # aggregate deputy information
         child_deps = set([ cmd_deps[child] for child in children \
                 if child in cmd_deps ])
         if len(child_deps) == 1:
-            dep_str = child_deps.pop().name
+            dep_str = child_deps.pop().deputy_id
         else:
             dep_str = "Mixed"
 
@@ -169,7 +169,7 @@ class SheriffCommandModel(gtk.TreeStore):
         self.set (model_iter,
                 COL_CMDS_TV_STATUS_ACTUAL, status_str,
                 COL_CMDS_TV_EXEC, exec_val,
-                COL_CMDS_TV_HOST, dep_str,
+                COL_CMDS_TV_DEPUTY, dep_str,
                 COL_CMDS_TV_CPU_USAGE, cpu_str,
                 COL_CMDS_TV_MEM_VSIZE, mem_total)
 
@@ -247,7 +247,7 @@ class SheriffCommandModel(gtk.TreeStore):
                 cmd.exec_str,      # COL_CMDS_TV_EXEC
                 "",                # COL_CMDS_TV_FULL_GROUP
                 cmd.command_id,    # COL_CMDS_TV_COMMAND_ID
-                deputy.name,       # COL_CMDS_TV_HOST
+                deputy.deputy_id,  # COL_CMDS_TV_DEPUTY
                 cmd.status (),     # COL_CMDS_TV_STATUS_ACTUAL
                 "0",               # COL_CMDS_TV_CPU_USAGE
                 0,                 # COL_CMDS_TV_MEM_VSIZE

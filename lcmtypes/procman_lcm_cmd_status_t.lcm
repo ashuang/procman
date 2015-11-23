@@ -4,7 +4,6 @@ package procman_lcm;
  */
 
 struct cmd_status_t {
-
     // The command to execute.
     cmd_t cmd;
 

@@ -20,19 +20,19 @@ A simple configuration file might look like:
 cmd "web-browser" {
     # When started from procman, the executable named "firefox" is invoked.
     exec = "firefox";
-    # The command is assigned to the deputy specified by the "host" attribute.
-    host = "deputy_name";
+    # The command is assigned to the deputy specified by the "deputy" attribute.
+    deputy = "deputy_id";
 }
 
 # Commands can be grouped.  This group is named "shells"
 group "shells" {
     cmd "terminal 1" {
         exec = "xterm";
-        host = "deputy_name";
+        deputy = "deputy_id";
     }
     cmd "terminal 2" {
         exec = "rxvt";
-        host = "deputy_name";
+        deputy = "deputy_id";
     }
     # more commands in "group_name_0" here.
 }
@@ -80,8 +80,9 @@ Values are either quoted strings, or integers.
 - "exec"
   - String.  The name of the command that will be run when the command is started.  This
     should follow bash-style shell syntax.  This attribute is __required__.
-- "host"
-  - String.  The name of the deputy that the command will be assigned to.  This attribute is __required__.
+- "deputy"
+  - String.  The id of the deputy that the command will be assigned to.  This
+  attribute is __required__.
 - "auto_respawn"
   - String.  Must be either "true" or "false".  If true, then a deputy will
     automatically try to restart the command if it stops, as long as the
@@ -108,8 +109,8 @@ cmd "MATLAB" {
     # Start MATLAB and have it run the script 'run_my_robot.m'
     exec = "matlab -nodisplay -r run_my_robot";
 
-    # Run it on deputy name
-    host = "deputy_name";
+    # Run it on deputy_id
+    deputy = "deputy_id";
 
     # MATLAB may not exit on SIGINT, but does respond to SIGTERM.
     stop_signal = 15;
@@ -119,7 +120,7 @@ cmd "MATLAB" {
 }
 cmd "hardware interface" {
     exec = "hardware_driver";
-    host = "deputy_name";
+    deputy = "deputy_id";
     # Automatically restart this command if it crashes.
     auto_respawn = "true";
 }
@@ -137,7 +138,7 @@ the environment variable specifications.  For example:
 cmd "terminal" {
     # runs 'xterm' and set the environment variable 'DISPLAY' to the value ':1.0'
     exec = "DISPLAY=:1.0  xterm";
-    host = "deputy_name";
+    deputy = "deputy_id";
 }
 \endcode
 
@@ -148,7 +149,7 @@ deputy process at the time a command is started, and not on the sheriff.  For ex
 \code
 cmd "list home directory" {
     exec = "ls ${HOME}";
-    host = "deputy_name";
+    deputy = "deputy_id";
 }
 \endcode
 
@@ -174,12 +175,12 @@ group "group_name" {
             # Command specifiers...
             cmd "terminal" {
                 exec = "xterm";
-                host = "deputy_name";
+                deputy = "deputy_id";
             }
         }
         cmd "web browser" {
             exec = "firefox";
-            host = "other_deputy";
+            deputy = "other_deputy";
         }
     }
 }
@@ -197,20 +198,20 @@ A configuration file with a simple script might look like:
 cmd "load configuration" {
     # This command loads the robot configuration, and then exits.
     exec = "configure_robot";
-    host = "robot";
+    deputy = "robot";
 }
 cmd "hardware interface" {
     exec = "hw_interface";
-    host = "robot";
+    deputy = "robot";
 }
 group "planning and perception" {
     cmd "planner" {
         exec = "planner";
-        host = "robot";
+        deputy = "robot";
     }
     cmd "perception" {
         exec = "perception";
-        host = "robot";
+        deputy = "robot";
     }
 }
 
@@ -354,11 +355,11 @@ group "hardware drivers" {
     group "cameras" {
         cmd "left camera" {
             exec = "left_camera";
-            host = "robot";
+            deputy = "robot";
         }
         cmd "right camera" {
             exec = "right_camera";
-            host = "robot";
+            deputy = "robot";
         }
     }
 }

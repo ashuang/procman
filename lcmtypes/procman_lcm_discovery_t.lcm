@@ -7,6 +7,10 @@ package procman_lcm;
 
 struct discovery_t {
     int64_t utime;
-    string host;
+
+    // Id of the transmitter. If the tranmsitter is a deputy, then this is the
+    // deputy id. If the transmitter is a sheriff, then this is the sheriff id.
+    string transmitter_id;
+
     int64_t nonce;
 }

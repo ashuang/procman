@@ -25,7 +25,7 @@ import procman.sheriff_gtk.command_model as cm
 import procman.sheriff_gtk.command_treeview as ctv
 import procman.sheriff_gtk.sheriff_dialogs as sd
 import procman.sheriff_gtk.command_console as cc
-import procman.sheriff_gtk.hosts_treeview as ht
+import procman.sheriff_gtk.deputies_treeview as ht
 
 try:
     from procman.build_prefix import BUILD_PREFIX
@@ -76,7 +76,7 @@ class SheriffGtk(SheriffListener):
         self.script_manager.add_listener(self)
 
         # update very soon
-        gobject.timeout_add(100, lambda *s: self.hosts_ts.update() and False)
+        gobject.timeout_add(100, lambda *s: self.deputies_ts.update() and False)
         gobject.timeout_add(100, lambda *s: self._schedule_cmds_update() and False)
 
         # and then periodically
@@ -163,15 +163,15 @@ class SheriffGtk(SheriffListener):
             col.connect("notify::visible", on_visibility_changed, col_cmi)
             view_menu.append(col_cmi)
 
-        # setup the hosts treeview
-        self.hosts_ts = ht.SheriffHostModel(self.sheriff)
-        self.hosts_tv = ht.SheriffHostTreeView(self.sheriff, self.hosts_ts)
+        # setup the deputies treeview
+        self.deputies_ts = ht.SheriffDeputyModel(self.sheriff)
+        self.deputies_tv = ht.SheriffDeputyTreeView(self.sheriff, self.deputies_ts)
         sw = gtk.ScrolledWindow ()
         sw.set_policy (gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         hpane.pack2 (sw, resize = False)
-        sw.add (self.hosts_tv)
+        sw.add (self.deputies_tv)
 
-        gobject.timeout_add (1000, lambda *s: self.hosts_ts.update() or True)
+        gobject.timeout_add (1000, lambda *s: self.deputies_ts.update() or True)
 
         # stdout textview
         self.cmd_console = cc.SheriffCommandConsole(self.sheriff, self.lcm_obj)
@@ -286,7 +286,7 @@ class SheriffGtk(SheriffListener):
 
         self.cmds_tv.load_settings(d)
         self.cmd_console.load_settings(d)
-        self.hosts_tv.load_settings(d)
+        self.deputies_tv.load_settings(d)
 
     def save_settings(self):
         config_dir = os.path.join(glib.get_user_config_dir(), "procman-sheriff")
@@ -297,7 +297,7 @@ class SheriffGtk(SheriffListener):
 
         self.cmds_tv.save_settings(d)
         self.cmd_console.save_settings(d)
-        self.hosts_tv.save_settings(d)
+        self.deputies_tv.save_settings(d)
 
         try:
             pickle.dump(d, open(self.config_fname, "w"))
@@ -333,7 +333,7 @@ class SheriffGtk(SheriffListener):
         returncode_msgs = { \
                 0 : "Terminated",
                 1 : "OS or other networking error",
-                2 : "Conflicting deputy with same name already exists" }
+                2 : "Conflicting deputy with same id already exists" }
 
         msg = returncode_msgs.get(self.spawned_deputy.returncode, "Unknown error")
 

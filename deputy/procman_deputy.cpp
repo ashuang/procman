@@ -117,7 +117,7 @@ DeputyOptions DeputyOptions::Defaults() {
   char buf[256];
   memset(buf, 0, sizeof(buf));
   gethostname(buf, sizeof(buf) - 1);
-  result.name = buf;
+  result.deputy_id = buf;
 
   result.verbose = false;
   return result;
@@ -126,7 +126,7 @@ DeputyOptions DeputyOptions::Defaults() {
 ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options, QObject* parent) :
   QObject(parent),
   options_(options),
-  deputy_name_(options.name),
+  deputy_id_(options.deputy_id),
   discovery_sub_(nullptr),
   info_sub_(nullptr),
   orders_sub_(nullptr),
@@ -197,7 +197,7 @@ ProcmanDeputy::~ProcmanDeputy() {
 
 void ProcmanDeputy::TransmitStr(const std::string& command_id, const char* str) {
   output_t msg;
-  msg.deputy_name = deputy_name_;
+  msg.deputy_id = deputy_id_;
   msg.command_id = command_id;
   msg.text = str;
   msg.utime = timestamp_now ();
@@ -216,7 +216,7 @@ void ProcmanDeputy::PrintfAndTransmit(const std::string& command_id, const char 
 
   if (len) {
     output_t msg;
-    msg.deputy_name = deputy_name_;
+    msg.deputy_id = deputy_id_;
     msg.command_id = command_id;
     msg.text = buf;
     msg.utime = timestamp_now ();
@@ -406,7 +406,7 @@ void ProcmanDeputy::TransmitProcInfo() {
   // build a deputy info message
   deputy_info_t msg;
   msg.utime = timestamp_now();
-  msg.host = deputy_name_;
+  msg.deputy_id = deputy_id_;
   msg.cpu_load = cpu_load_;
   msg.phys_mem_total_bytes = cpu_time_[1].memtotal;
   msg.phys_mem_free_bytes = cpu_time_[1].memfree;
@@ -601,9 +601,9 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
   }
 
   // ignore orders for other deputies
-  if (orders->host != deputy_name_) {
+  if (orders->deputy_id != deputy_id_) {
     if (options_.verbose)
-      dbgt ("ignoring orders for other host %s\n", orders->host.c_str());
+      dbgt ("ignoring orders for other deputy %s\n", orders->deputy_id.c_str());
     return;
   }
 
@@ -793,9 +793,9 @@ void ProcmanDeputy::DiscoveryReceived(const lcm::ReceiveBuffer* rbuf,
   if(now < deputy_start_time_ + DISCOVERY_TIME_MS * 1000) {
     // received a discovery message while still in discovery mode.  Check to
     // see if it's from a conflicting deputy.
-    if(msg->host == deputy_name_ && msg->nonce != deputy_pid_) {
-      dbgt("ERROR.  Detected another deputy named [%s].  Aborting to avoid conflicts.\n",
-          msg->host.c_str());
+    if(msg->transmitter_id == deputy_id_ && msg->nonce != deputy_pid_) {
+      dbgt("ERROR.  Detected another deputy [%s].  Aborting to avoid conflicts.\n",
+          msg->transmitter_id.c_str());
       exit(1);
     }
   } else {
@@ -811,9 +811,9 @@ void ProcmanDeputy::InfoReceived(const lcm::ReceiveBuffer* rbuf,
   if(now < deputy_start_time_ + DISCOVERY_TIME_MS * 1000) {
     // A different deputy has reported while we're still in discovery mode.
     // Check to see if the deputy names are in conflict.
-    if(msg->host == deputy_name_) {
-      dbgt("ERROR.  Detected another deputy named [%s].  Aborting to avoid conflicts.\n",
-          msg->host.c_str());
+    if(msg->deputy_id == deputy_id_) {
+      dbgt("ERROR.  Detected another deputy [%s].  Aborting to avoid conflicts.\n",
+          msg->deputy_id.c_str());
       exit(2);
     }
   } else {
@@ -827,7 +827,7 @@ void ProcmanDeputy::OnDiscoveryTimer() {
     // Publish a discover message to check for conflicting deputies
     discovery_t msg;
     msg.utime = now;
-    msg.host = deputy_name_;
+    msg.transmitter_id = deputy_id_;
     msg.nonce = deputy_pid_;
     lcm_->publish("PM_DISCOVER", &msg);
   } else {
@@ -854,13 +854,13 @@ static void usage() {
             "\n"
             "  -h, --help        shows this help text and exits\n"
             "  -v, --verbose     verbose output\n"
-            "  -n, --name NAME   use deputy name NAME instead of hostname\n"
+            "  -i, --id NAME   use deputy id NAME instead of hostname\n"
             "  -l, --log PATH    dump messages to PATH instead of stdout\n"
             "  -u, --lcmurl URL  use specified LCM URL for procman messages\n"
             "\n"
-            "DEPUTY NAME\n"
-            "  The deputy name must be unique from other deputies.  On startup,\n"
-            "  if another deputy with the same name is detected, the newly started\n"
+            "DEPUTY ID\n"
+            "  The deputy id must be unique from other deputies.  On startup,\n"
+            "  if another deputy with the same id is detected, the newly started\n"
             "  deputy will self-terminate.\n"
             "\n"
             "EXIT STATUS\n"
@@ -890,7 +890,7 @@ int main (int argc, char **argv) {
 
   DeputyOptions dep_options = DeputyOptions::Defaults();
   char *logfilename = NULL;
-  std::string hostname_override;
+  std::string deputy_id_override;
 
   while ((c = getopt_long (argc, argv, optstring, long_opts, 0)) >= 0) {
     switch (c) {
@@ -905,7 +905,7 @@ int main (int argc, char **argv) {
         dep_options.lcm_url = optarg;
         break;
       case 'n':
-        hostname_override = optarg;
+        deputy_id_override = optarg;
         break;
       case 'h':
       default:
@@ -944,8 +944,8 @@ int main (int argc, char **argv) {
   }
 
   // set deputy hostname to the system hostname
-  if (!hostname_override.empty()) {
-    dep_options.name = hostname_override;
+  if (!deputy_id_override.empty()) {
+    dep_options.deputy_id = deputy_id_override;
   }
 
   // convert Unix signals into file descriptor writes

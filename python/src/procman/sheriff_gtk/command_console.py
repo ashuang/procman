@@ -136,7 +136,7 @@ class SheriffCommandConsole(gtk.ScrolledWindow, SheriffListener):
                         (extradata.printf_drop_count))
                 self._add_text_to_buffer (self.sheriff_tb, now_str() +
                         "Ignored %d bytes of output from [%s] [%s]\n" % \
-                        (extradata.printf_drop_count, deputy.name, cmd.command_id))
+                        (extradata.printf_drop_count, deputy.deputy_id, cmd.command_id))
 
             extradata.printf_keep_count.pop (0)
             extradata.printf_keep_count.append (0)
@@ -191,12 +191,12 @@ class SheriffCommandConsole(gtk.ScrolledWindow, SheriffListener):
         extradata = CommandExtraData (self.sheriff_tb.get_tag_table())
         self._cmd_extradata[command] = extradata
         self._add_text_to_buffer (self.sheriff_tb, now_str() +
-                "Added [%s] [%s] [%s]\n" % (deputy.name, command.command_id, command.exec_str))
+                "Added [%s] [%s] [%s]\n" % (deputy.deputy_id, command.command_id, command.exec_str))
 
     def _gtk_on_sheriff_command_removed (self, deputy, command):
         del self._cmd_extradata[command]
         self._add_text_to_buffer (self.sheriff_tb, now_str() +
-                "[%s] removed [%s] [%s]\n" % (deputy.name, command.command_id, command.exec_str))
+                "[%s] removed [%s] [%s]\n" % (deputy.deputy_id, command.command_id, command.exec_str))
 
     def _gtk_on_command_desired_changed (self, cmd,
             old_status, new_status):

@@ -66,7 +66,7 @@ class SheriffCommandSpec(object):
 
     \ingroup python_api
     """
-    __slots__ = [ "deputy_name", "exec_str", "command_id", "group_name",
+    __slots__ = [ "deputy_id", "exec_str", "command_id", "group_name",
             "auto_respawn", "stop_signal", "stop_time_allowed" ]
 
     def __init__(self):
@@ -74,7 +74,7 @@ class SheriffCommandSpec(object):
         """
 
         ## the name of the deputy that will manage this command.
-        self.deputy_name = ""
+        self.deputy_id = ""
 
         ## the actual command string to execute.
         self.exec_str = ""
@@ -265,14 +265,14 @@ class SheriffDeputy(object):
 
     \ingroup python_api
     """
-    def __init__(self, name):
-        """Initializes a deputy with the specified name.  Do not use this
+    def __init__(self, deputy_id):
+        """Initializes a deputy with the specified id.  Do not use this
         constructor directly.  Instead, get a list of deputies from the
         Sheriff.
         """
 
-        ## Deputy name
-        self.name = name
+        ## Deputy id
+        self.deputy_id = deputy_id
 
         ## Last reported CPU load on the deputy.  Ranges from [0, 1], where 0
         # is no load and 1 is fully loaded.
@@ -405,7 +405,7 @@ class SheriffDeputy(object):
     def _make_orders_message(self, sheriff_id):
         msg = orders_t()
         msg.utime = _now_utime()
-        msg.host = self.name
+        msg.deputy_id = self.deputy_id
         msg.ncmds = len(self._commands)
         msg.sheriff_id = sheriff_id
         for cmd in self._commands.values():
@@ -548,7 +548,7 @@ class Sheriff(object):
         # publish a discovery message to query for existing deputies
         discover_msg = discovery_t()
         discover_msg.utime = _now_utime()
-        discover_msg.host = ""
+        discover_msg.transmitter_id = self._id
         discover_msg.nonce = 0
         self._lcm.publish("PM_DISCOVER", discover_msg.encode())
 
@@ -562,11 +562,11 @@ class Sheriff(object):
         self._listeners = []
         self._queued_events = []
 
-    def _get_or_make_deputy(self, deputy_name):
+    def _get_or_make_deputy(self, deputy_id):
         # _lock should already be acquired
-        if deputy_name not in self._deputies:
-            self._deputies[deputy_name] = SheriffDeputy(deputy_name)
-        return self._deputies[deputy_name]
+        if deputy_id not in self._deputies:
+            self._deputies[deputy_id] = SheriffDeputy(deputy_id)
+        return self._deputies[deputy_id]
 
     def __deputy_info_received(self, deputy_obj):
         self._queued_events.append(lambda listener:
@@ -647,15 +647,15 @@ class Sheriff(object):
             # ignore old messages
             return
 
-#        _dbg("received pmd info from [%s]" % info_msg.host)
+#        _dbg("received pmd info from [%s]" % info_msg.deputy_id)
 
         with self._lock:
-            deputy = self._get_or_make_deputy(info_msg.host)
+            deputy = self._get_or_make_deputy(info_msg.deputy_id)
 
             # Check if this is the first time we've heard from the deputy and
             # we already have a desired state for the deputy.
             if not deputy.last_update_utime and deputy._commands:
-                _dbg("First update from [%s]" % info_msg.host)
+                _dbg("First update from [%s]" % info_msg.deputy_id)
 
             status_changes = deputy._update_from_deputy_info(info_msg)
 
@@ -671,7 +671,7 @@ class Sheriff(object):
 
         with self._lock:
             if self._is_observer:
-                deputy = self._get_or_make_deputy(orders_msg.host)
+                deputy = self._get_or_make_deputy(orders_msg.deputy_id)
                 status_changes = deputy._update_from_deputy_orders(orders_msg)
                 self._maybe_emit_status_change_signals(deputy, status_changes)
             elif self._id != orders_msg.sheriff_id:
@@ -729,10 +729,10 @@ class Sheriff(object):
             raise ValueError("Invalid command id")
         if self._get_command_by_id(spec.command_id):
             raise ValueError("Duplicate command id %s" % spec.command_id)
-        if not spec.deputy_name:
+        if not spec.deputy_id:
             raise ValueError("Invalid deputy")
 
-        dep = self._get_or_make_deputy(spec.deputy_name)
+        dep = self._get_or_make_deputy(spec.deputy_id)
         newcmd = SheriffDeputyCommand()
         newcmd.exec_str = spec.exec_str
         newcmd.command_id = spec.command_id
@@ -897,19 +897,19 @@ class Sheriff(object):
         with self._lock:
             self._schedule_command_for_removal(cmd)
 
-    def move_cmd_to_deputy(self, cmd, newdeputy_name):
+    def move_cmd_to_deputy(self, cmd, new_deputy_id):
         """Move a command from one deputy to another.  This removes the command
         from one deputy, and creates it in another.  On return, the passed in
         command object is no longer valid and should not be used.
 
         @param cmd a SheriffDeputyCommand object to move.  This object is invalidated by this method.
-        @param newdeputy_name the name of the new deputy for the command.
+        @param new_deputy_id the id of the new deputy for the command.
 
         @return the newly created command
         """
         self.schedule_command_for_removal(cmd)
         spec = SheriffCommandSpec()
-        spec.deputy_name = newdeputy_name
+        spec.deputy_id = new_deputy_id
         spec.exec_str = cmd.exec_str
         spec.command_id = cmd.command_id
         spec.group_name = cmd.group
@@ -948,15 +948,15 @@ class Sheriff(object):
         with self._lock:
             return self._deputies.values()
 
-    def find_deputy(self, name):
-        """Retrieve the SheriffDeputy object by deputy name.
+    def find_deputy(self, deputy_id):
+        """Retrieve the SheriffDeputy object by deputy id.
 
-        @param name the name of the desired deputy.
+        @param deputy_id the id of the desired deputy.
 
         @return a SheriffDeputy object.
         """
         with self._lock:
-            return self._deputies[name]
+            return self._deputies[deputy_id]
 
     def purge_useless_deputies(self):
         """Clean up the Sheriff internal state.
@@ -966,11 +966,11 @@ class Sheriff(object):
         of deputies that don't have any commands.
         """
         with self._lock:
-            for deputy_name, deputy in self._deputies.items():
+            for deputy_id, deputy in self._deputies.items():
                 cmds = deputy._commands.values()
                 if not deputy._commands or \
                         all([ cmd.scheduled_for_removal for cmd in cmds ]):
-                    del self._deputies[deputy_name]
+                    del self._deputies[deputy_id]
 
     def _get_command_deputy(self, command):
         for deputy in self._deputies.values():
@@ -1080,14 +1080,16 @@ class Sheriff(object):
                     # if merging is enabled, then only add this command if we don't
                     # have an entry for it already.
                     if merge_with_existing:
-                        cmdstr = "%s!%s!%s!%s!%s" % (cmd_node.attributes["host"], cmd_node.attributes["exec"],
-                                cmd_node.attributes["nickname"], name_prefix + group_node.name, str(auto_respawn))
+                        cmdstr = "%s!%s!%s!%s!%s" % (cmd_node.attributes["deputy"],
+                                cmd_node.attributes["exec"],
+                                cmd_node.attributes["nickname"],
+                                name_prefix + group_node.name, str(auto_respawn))
                         if cmdstr in current_command_strs:
                             add_command = False
 
                     if add_command:
                         spec = SheriffCommandSpec()
-                        spec.deputy_name = cmd_node.attributes["host"]
+                        spec.deputy_id = cmd_node.attributes["deputy"]
                         spec.exec_str = cmd_node.attributes["exec"]
                         spec.command_id = cmd_node.attributes["nickname"]
                         spec.group_name = name_prefix + group_node.name
@@ -1111,7 +1113,7 @@ class Sheriff(object):
 
             for spec in commands_to_add:
                 self._add_command(spec)
-    #            _dbg("[%s] %s (%s) -> %s" % (newcmd.group, newcmd.exec_str, newcmd.nickname, cmd.attributes["host"]))
+    #            _dbg("[%s] %s (%s) -> %s" % (newcmd.group, newcmd.exec_str, newcmd.nickname, cmd.attributes["deputy"]))
 
     def save_config(self, config_node):
         """Write the current sheriff configuration to the specified file
@@ -1128,7 +1130,7 @@ class Sheriff(object):
                     cmd_node = sheriff_config.CommandNode()
                     cmd_node.attributes["exec"] = cmd.exec_str
                     cmd_node.attributes["nickname"] = cmd.command_id
-                    cmd_node.attributes["host"] = deputy.name
+                    cmd_node.attributes["deputy"] = deputy.deputy_id
                     if cmd.auto_respawn:
                         cmd_node.attributes["auto_respawn"] = "true"
 

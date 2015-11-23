@@ -25,19 +25,19 @@ class AddModifyCommandDialog (gtk.Dialog):
 
         # deputy
         table.attach (gtk.Label ("Deputy"), 0, 1, 0, 1, 0, 0)
-        self.host_cb = gtk.combo_box_new_text()
+        self.deputy_cb = gtk.combo_box_new_text()
 
         dep_ind = 0
         deputies.sort ()
         for deputy in deputies:
-            self.host_cb.append_text (deputy)
+            self.deputy_cb.append_text (deputy)
             if deputy == initial_deputy:
-                self.host_cb.set_active (dep_ind)
+                self.deputy_cb.set_active (dep_ind)
             dep_ind += 1
-        if self.host_cb.get_active () < 0 and len(deputies) > 0:
-            self.host_cb.set_active (0)
+        if self.deputy_cb.get_active () < 0 and len(deputies) > 0:
+            self.deputy_cb.set_active (0)
 
-        table.attach (self.host_cb, 1, 2, 0, 1)
+        table.attach (self.deputy_cb, 1, 2, 0, 1)
         self.deputies = deputies
 
         # command name
@@ -126,8 +126,8 @@ class AddModifyCommandDialog (gtk.Dialog):
             widget.set_inconsistent(False)
 
     def get_deputy (self):
-        model = self.host_cb.get_model()
-        active = self.host_cb.get_active ()
+        model = self.deputy_cb.get_model()
+        active = self.deputy_cb.get_active ()
         if active < 0: return None
         return model[active][0]
 
@@ -199,7 +199,7 @@ def do_add_command_dialog(sheriff, cmds_ts, window):
         msgdlg.run ()
         msgdlg.destroy ()
         return
-    deputy_names = [deputy.name for deputy in deputies ]
+    deputy_ids = [deputy.deputy_id for deputy in deputies ]
 
     # pick an initial command id
     existing_ids = set([ cmd.command_id for cmd in sheriff.get_all_commands() ])
@@ -210,14 +210,14 @@ def do_add_command_dialog(sheriff, cmds_ts, window):
             break
     assert initial_cmd_id and initial_cmd_id not in existing_ids
 
-    dlg = AddModifyCommandDialog (window, deputy_names,
+    dlg = AddModifyCommandDialog (window, deputy_ids,
             cmds_ts.get_known_group_names(), initial_cmd_id = initial_cmd_id)
 
     while dlg.run () == gtk.RESPONSE_ACCEPT:
         spec = SheriffCommandSpec()
         spec.exec_str = dlg.get_command()
         spec.command_id = dlg.get_command_id()
-        spec.deputy_name = dlg.get_deputy()
+        spec.deputy_id = dlg.get_deputy()
         spec.group_name = dlg.get_group().strip()
         spec.auto_respawn = dlg.get_auto_respawn ()
         spec.stop_signal = dlg.get_stop_signal()
@@ -384,7 +384,7 @@ def do_preferences_dialog(sheriff_gtk, window):
 #        sheriff_gtk.cmds_tv.set_background_color(dlg.bg_color_bt.get_color())
 #        sheriff_gtk.cmds_tv.set_text_color(dlg.text_color_bt.get_color())
 #
-#        sheriff_gtk.hosts_tv.set_background_color(dlg.bg_color_bt.get_color())
-#        sheriff_gtk.hosts_tv.set_text_color(dlg.text_color_bt.get_color())
+#        sheriff_gtk.deputies_tv.set_background_color(dlg.bg_color_bt.get_color())
+#        sheriff_gtk.deputies_tv.set_text_color(dlg.text_color_bt.get_color())
 
     dlg.destroy()

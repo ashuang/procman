@@ -7,7 +7,7 @@ package procman_lcm;
 
 struct orders_t {
     int64_t utime;
-    string host;
+    string deputy_id;
     string sheriff_id;
 
     int32_t ncmds;

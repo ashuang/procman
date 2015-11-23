@@ -5,7 +5,6 @@ package procman_lcm;
 // ============ set by the sheriff ==========
 
 struct cmd_desired_t {
-
     // describes the command
     cmd_t cmd;
 

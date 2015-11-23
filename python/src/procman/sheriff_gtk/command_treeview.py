@@ -19,7 +19,7 @@ class SheriffCommandTreeView(gtk.TreeView):
         cols_to_make = [ \
             ("Id",       cmds_tr,   cm.COL_CMDS_TV_COMMAND_ID,  None),
             ("Command",  cmds_tr,   cm.COL_CMDS_TV_EXEC,  None),
-            ("Deputy",   plain_tr,  cm.COL_CMDS_TV_HOST, None),
+            ("Deputy",   plain_tr,  cm.COL_CMDS_TV_DEPUTY, None),
             ("Status",   status_tr, cm.COL_CMDS_TV_STATUS_ACTUAL, self._status_cell_data_func),
             ("CPU %",    plain_tr,  cm.COL_CMDS_TV_CPU_USAGE, None),
             ("Mem (kB)", plain_tr,  cm.COL_CMDS_TV_MEM_VSIZE, None),
@@ -278,7 +278,7 @@ class SheriffCommandTreeView(gtk.TreeView):
     def _do_edit_command_dialog(self, cmds):
         unchanged_val = "[Unchanged]"
 
-        old_deputies = [self.sheriff.get_command_deputy(cmd).name for cmd in cmds]
+        old_deputies = [self.sheriff.get_command_deputy(cmd).deputy_id for cmd in cmds]
 
         old_exec_strs = [cmd.exec_str for cmd in cmds]
         old_command_ids = [cmd.command_id for cmd in cmds]
@@ -289,11 +289,11 @@ class SheriffCommandTreeView(gtk.TreeView):
 
         # handle all same/different deputies
         if all(x == old_deputies[0] for x in old_deputies):
-            deputies_list = [deputy.name for deputy in self.sheriff.get_deputies()]
+            deputies_list = [deputy.deputy_id for deputy in self.sheriff.get_deputies()]
             cur_deputy = old_deputies[0]
         else:
             deputies_list = [unchanged_val]
-            deputies_list.extend([deputy.name for deputy in self.sheriff.get_deputies()])
+            deputies_list.extend([deputy.deputy_id for deputy in self.sheriff.get_deputies()])
             cur_deputy = unchanged_val
 
         # handle all same/different groups

@@ -24,7 +24,7 @@ struct DeputyCommand;
 struct DeputyOptions {
   static DeputyOptions Defaults();
 
-  std::string name;
+  std::string deputy_id;
   std::string lcm_url;
   bool verbose;
 };
@@ -78,7 +78,7 @@ class ProcmanDeputy : public QObject {
 
     lcm::LCM *lcm_;
 
-    std::string deputy_name_;
+    std::string deputy_id_;
 
     sys_cpu_mem_t cpu_time_[2];
     float cpu_load_;

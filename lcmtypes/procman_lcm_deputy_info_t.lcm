@@ -8,7 +8,7 @@ package procman_lcm;
 
 struct deputy_info_t {
     int64_t utime;
-    string host;
+    string deputy_id;
 
     // [0, 1]
     float cpu_load;

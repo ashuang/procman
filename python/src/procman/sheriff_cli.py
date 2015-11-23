@@ -92,7 +92,7 @@ class SheriffHeadless(ScriptListener):
         # start a local deputy?
         if self.spawn_deputy:
             procman_deputy_cmd = find_procman_deputy_cmd()
-            args = [ procman_deputy_cmd, "-n", "localhost" ]
+            args = [ procman_deputy_cmd, "-i", "localhost" ]
             if not procman_deputy_cmd:
                 sys.stderr.write("Can't find procman-deputy.")
                 sys.exit(1)
