@@ -86,7 +86,7 @@ class SheriffHeadless(ScriptListener):
     def run(self):
         # parse the config file
         if self.config is not None:
-            self.sheriff.load_config(self.config, False)
+            self.sheriff.load_config(self.config)
             self.script_manager.load_config(self.config)
 
         # start a local deputy?

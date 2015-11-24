@@ -404,7 +404,7 @@ class SheriffCommandTreeView(gtk.TreeView):
             if not children:
                 cell.set_property ("cell-background-set", False)
             else:
-                statuses = [ cmd.status () for cmd in children ]
+                statuses = [ cmd.status() for cmd in children ]
 
                 if all ([s == statuses[0] for s in statuses]):
                     # if all the commands in a group have the same status, then

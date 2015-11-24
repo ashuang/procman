@@ -90,15 +90,10 @@ class SheriffCommandModel(gtk.TreeStore):
         cpu_str = "%.2f" % (cmd.cpu_usage * 100)
         mem_usage = int(cmd.mem_vsize_bytes / 1024)
 
-        if cmd.command_id.strip():
-            command_id = cmd.command_id
-        else:
-            command_id = "<unnamed>"
-
         self.set(model_iter,
                 COL_CMDS_TV_EXEC, cmd.exec_str,
-                COL_CMDS_TV_COMMAND_ID, command_id,
-                COL_CMDS_TV_STATUS_ACTUAL, cmd.status (),
+                COL_CMDS_TV_COMMAND_ID, cmd.command_id,
+                COL_CMDS_TV_STATUS_ACTUAL, cmd.status(),
                 COL_CMDS_TV_DEPUTY, cmd_deps[cmd].deputy_id,
                 COL_CMDS_TV_CPU_USAGE, cpu_str,
                 COL_CMDS_TV_MEM_VSIZE, mem_usage,
@@ -137,7 +132,7 @@ class SheriffCommandModel(gtk.TreeStore):
             return
 
         # aggregate command status
-        statuses = [ child.status () for child in children ]
+        statuses = [ cmd.status() for cmd in children ]
         stopped_statuses = [sheriff.STOPPED_OK, sheriff.STOPPED_ERROR]
         if all ([s == statuses[0] for s in statuses]):
             status_str = statuses[0]
@@ -248,7 +243,7 @@ class SheriffCommandModel(gtk.TreeStore):
                 "",                # COL_CMDS_TV_FULL_GROUP
                 cmd.command_id,    # COL_CMDS_TV_COMMAND_ID
                 deputy.deputy_id,  # COL_CMDS_TV_DEPUTY
-                cmd.status (),     # COL_CMDS_TV_STATUS_ACTUAL
+                cmd.status(),      # COL_CMDS_TV_STATUS_ACTUAL
                 "0",               # COL_CMDS_TV_CPU_USAGE
                 0,                 # COL_CMDS_TV_MEM_VSIZE
                 cmd.auto_respawn,  # COL_CMDS_TV_AUTO_RESPAWN

@@ -266,11 +266,11 @@ class ScriptManager(object):
 
         self._to_emit = []
 
-        self._worker_thread = threading.Thread(target = self._worker_thread)
+        self._worker_thread_obj = threading.Thread(target = self._worker_thread)
         self._exiting = False
         self._lock = threading.Lock()
         self._condvar = threading.Condition(self._lock)
-        self._worker_thread.start()
+        self._worker_thread_obj.start()
 
         self._sheriff_listener = SMSheriffListener(self)
         self._sheriff.add_listener(self._sheriff_listener)
@@ -460,7 +460,7 @@ class ScriptManager(object):
             self.__script_finished(script)
 
     def _check_wait_action_status(self):
-#        _dbg("_check_wait_action_status")
+        _dbg("_check_wait_action_status")
         # self._lock should already be acquired
         if not self._waiting_on_commands:
             return
@@ -468,14 +468,14 @@ class ScriptManager(object):
         if self._waiting_for_status == "running":
             for cmd in self._waiting_on_commands:
                 cmd_status = cmd.status()
-                if not (cmd_status == RUNNING or
-                        ((cmd_status in (STOPPED_OK, STOPPED_ERROR)) and
-                            cmd.desired_runid == cmd.actual_runid)):
+                if not cmd_status in (RUNNING, STOPPED_OK, STOPPED_ERROR):
                     _dbg("cmd [%s] not ready (%s)" % (cmd.command_id, cmd_status))
                     return
-        elif self._waiting_on_commands == "stopped":
+        elif self._waiting_for_status == "stopped":
             for cmd in self._waiting_on_commands:
-                if cmd.status() not in (STOPPED_OK, STOPPED_ERROR):
+                cmd_status = cmd.status()
+                if cmd_status not in (STOPPED_OK, STOPPED_ERROR):
+                    _dbg("cmd [%s] not ready (%s)" % (cmd.command_id, cmd_status))
                     return
         else:
             raise ValueError("Invalid desired status %s" % \
@@ -601,7 +601,7 @@ class ScriptManager(object):
             self._condvar.notify()
 
         # wait for worker thread to exit
-        self._worker_thread.join()
+        self._worker_thread_obj.join()
 
     def _worker_thread(self):
         to_call = []

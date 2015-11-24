@@ -487,7 +487,7 @@ class SheriffGtk(SheriffListener):
             self.remove_script_mi.set_sensitive(False)
 
     def load_config(self, cfg):
-        self.sheriff.load_config(cfg, False)
+        self.sheriff.load_config(cfg)
         self.script_manager.load_config(cfg)
 
     # GTK signal handlers

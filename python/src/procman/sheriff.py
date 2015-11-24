@@ -104,110 +104,163 @@ class SheriffDeputyCommand(object):
 
     \ingroup python_api
     """
-    def __init__(self):
-        ## Process ID of the command as reported by the deputy.
+    def __init__(self, lock):
+        self._lock = lock
+
+        # Process ID of the command as reported by the deputy.
         # Has value -1 if the PID is unknown.
         # Has value 0 if the process is not running (i.e., stopped)
         # Has a positive value if the process is running.
-        self.pid = -1
-
-        ## If the command is stopped, its exit code.
-        self.exit_code = 0
-
-        ## Command CPU usage, as reported by the deputy.  Ranges from [0, 1]
-        self.cpu_usage = 0
-
-        ## Virtual memory used by the command.
-        self.mem_vsize_bytes = 0
-
-        ## Resident memory used by the command.
-        self.mem_rss_bytes = 0
-
-        ## The executable string for the command.
-        self.exec_str = ""
-
-        ## A user-assigned string identifier for the comand.
-        self.command_id = ""
-
-        ## A user-assigned group name for the command, possibly empty.
-        self.group = ""
-
-        ## Sheriff-managed variable used to start and stop the command.
-        self.desired_runid = 0
-
-        ## Sheriff-managed variable used to start and stop the command.
-        self.force_quit = False
-
-        ## True if the command is being removed.
-        self.scheduled_for_removal = False
-
-        ## Deputy-reported variable identifying the run ID of the command.
+        self._pid = -1
+        # If the command is stopped, its exit code.
+        self._exit_code = 0
+        self._cpu_usage = 0
+        self._mem_vsize_bytes = 0
+        # Resident memory used by the command.
+        self._mem_rss_bytes = 0
+        self._exec_str = ""
+        self._command_id = ""
+        self._group = ""
+        self._desired_runid = 0
+        self._force_quit = False
+        # True if the command is being removed.
+        self._scheduled_for_removal = False
+        # Deputy-reported variable identifying the run ID of the command.
         # This variable changes each time the command is started.
-        self.actual_runid = 0
-
-        ## True if the deputy should automatically restart the command when it
-        # exits.  Auto respawn only happens if the command is set to running.
-        self.auto_respawn = False
-
-        ## When stopping the command, which OS signal to send the command to
-        # request that it cleanly exit.  This usually defaults to SIGINT.
-        self.stop_signal = DEFAULT_STOP_SIGNAL
-
-        ## When stopping the command, how much time to wait in between sending
-        # it stop_signal and a SIGKILL.
-        self.stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED
-
-        ## True if this data structure has been updated with information
+        self._actual_runid = 0
+        self._auto_respawn = False
+        self._stop_signal = DEFAULT_STOP_SIGNAL
+        self._stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED
+        # True if this data structure has been updated with information
         # received from a deputy, False if not.
-        self.updated_from_info = False
+        self._updated_from_info = False
+
+    @property
+    def cpu_usage(self):
+        """Command CPU usage, as reported by the deputy.  Ranges from [0, 1]"""
+        with self._lock:
+            return self._cpu_usage
+
+    @property
+    def mem_vsize_bytes(self):
+        """Virtual memory used by the command."""
+        with self._lock:
+            return self._mem_vsize_bytes
+
+    @property
+    def exec_str(self):
+        """The executable string for the command."""
+        with self._lock:
+            return self._exec_str
+
+    @property
+    def command_id(self):
+        """A user-assigned string that uniquely idenitifies the comand."""
+        with self._lock:
+            return self._command_id
+
+    @property
+    def group(self):
+        """A user-assigned group name for the command, possibly empty."""
+        with self._lock:
+            return self._group
+
+    @property
+    def auto_respawn(self):
+        """True if the deputy should automatically restart the command when it
+        exits.  Auto respawn only happens if the command is set to running.
+        """
+        with self._lock:
+            return self._auto_respawn
+
+    @property
+    def stop_signal(self):
+        """When stopping the command, which OS signal to send the command to
+        request that it cleanly exit.  This usually defaults to SIGINT."""
+        with self._lock:
+            return self._stop_signal
+
+    @property
+    def stop_time_allowed(self):
+        """When stopping the command, how much time to wait in between sending
+        it stop_signal and a SIGKILL."""
+        with self._lock:
+            return self._stop_time_allowed
 
     def _update_from_cmd_info(self, cmd_msg):
-        self.pid = cmd_msg.pid
-        self.actual_runid = cmd_msg.actual_runid
-        self.exit_code = cmd_msg.exit_code
-        self.cpu_usage = cmd_msg.cpu_usage
-        self.mem_vsize_bytes = cmd_msg.mem_vsize_bytes
-        self.mem_rss_bytes = cmd_msg.mem_rss_bytes
-        self.updated_from_info = True
+        self._pid = cmd_msg.pid
+        self._actual_runid = cmd_msg.actual_runid
+        self._exit_code = cmd_msg.exit_code
+        self._cpu_usage = cmd_msg.cpu_usage
+        self._mem_vsize_bytes = cmd_msg.mem_vsize_bytes
+        self._mem_rss_bytes = cmd_msg.mem_rss_bytes
+        self._updated_from_info = True
 
         # if the command has run to completion and we don't need it to respawn,
         # then prevent it from respawning if the deputy restarts
-        if self.pid == 0 and \
-            self.actual_runid == self.desired_runid and \
-            not self.auto_respawn and \
-            not self.force_quit:
-                self.force_quit = True
+        if self._pid == 0 and \
+            self._actual_runid == self._desired_runid and \
+            not self._auto_respawn and \
+            not self._force_quit:
+                self._force_quit = True
 
     def _update_from_cmd_orders(self, cmd_msg):
-        self.exec_str = cmd_msg.cmd.exec_str
-        self.command_id = cmd_msg.cmd.command_id
-        self.group = cmd_msg.cmd.group
-        self.desired_runid = cmd_msg.desired_runid
-        self.force_quit = cmd_msg.force_quit
-        self.stop_signal = cmd_msg.cmd.stop_signal
-        self.stop_time_allowed = cmd_msg.cmd.stop_time_allowed
-
-    def _set_group(self, group):
-        self.group = group
+        # Expects that self._lock is already acquired
+        self._exec_str = cmd_msg.cmd.exec_str
+        self._command_id = cmd_msg.cmd.command_id
+        self._group = cmd_msg.cmd.group
+        self._desired_runid = cmd_msg.desired_runid
+        self._force_quit = cmd_msg.force_quit
+        self._stop_signal = cmd_msg.cmd.stop_signal
+        self._stop_time_allowed = cmd_msg.cmd.stop_time_allowed
 
     def _start(self):
         # if the command is already running, then ignore
-        if self.pid > 0 and not self.force_quit:
+        if self._pid > 0 and not self._force_quit:
             return
 
-        self.desired_runid += 1
-        if self.desired_runid > (2 << 31):
-            self.desired_runid = 1
-        self.force_quit = False
+        self._desired_runid += 1
+        if self._desired_runid > (2 << 31):
+            self._desired_runid = 1
+        self._force_quit = False
 
     def _restart(self):
-        self.desired_runid += 1
-        if self.desired_runid > (2 << 31):
-            self.desired_runid = 1
-        self.force_quit = False
+        self._desired_runid += 1
+        if self._desired_runid > (2 << 31):
+            self._desired_runid = 1
+        self._force_quit = False
 
     def _stop(self):
-        self.force_quit = True
+        self._force_quit = True
+
+    def _status(self):
+        if not self._updated_from_info:
+            return UNKNOWN
+        if self._desired_runid != self._actual_runid and not self._force_quit:
+            if self._pid == 0:
+                return TRYING_TO_START
+            else:
+                return RESTARTING
+        elif self._desired_runid == self._actual_runid:
+            if self._pid > 0:
+                if not self._force_quit and not self._scheduled_for_removal:
+                    return RUNNING
+                else:
+                    return TRYING_TO_STOP
+            else:
+                if self._scheduled_for_removal:
+                    return REMOVING
+                elif self._exit_code == 0:
+                    return STOPPED_OK
+                elif self._force_quit and \
+                     os.WIFSIGNALED(self._exit_code) and \
+                     os.WTERMSIG(self._exit_code) in [ signal.SIGTERM,
+                             signal.SIGINT, signal.SIGKILL ]:
+                         return STOPPED_OK
+                else:
+                    return STOPPED_ERROR
+        else:
+            return UNKNOWN
 
     def status(self):
         """Retrieve the status of the command, as understood by the
@@ -223,42 +276,8 @@ class SheriffDeputyCommand(object):
         - procman.sheriff.UNKNOWN
         - procman.sheriff.RESTARTING
         """
-        if not self.updated_from_info:
-            return UNKNOWN
-        if self.desired_runid != self.actual_runid and not self.force_quit:
-            if self.pid == 0:
-                return TRYING_TO_START
-            else:
-                return RESTARTING
-        elif self.desired_runid == self.actual_runid:
-            if self.pid > 0:
-                if not self.force_quit and not self.scheduled_for_removal:
-                    return RUNNING
-                else:
-                    return TRYING_TO_STOP
-            else:
-                if self.scheduled_for_removal:
-                    return REMOVING
-                elif self.exit_code == 0:
-                    return STOPPED_OK
-                elif self.force_quit and \
-                     os.WIFSIGNALED(self.exit_code) and \
-                     os.WTERMSIG(self.exit_code) in [ signal.SIGTERM,
-                             signal.SIGINT, signal.SIGKILL ]:
-                         return STOPPED_OK
-                else:                          return STOPPED_ERROR
-        else:
-            return UNKNOWN
-
-    def __str__(self):
-        return """[%(exec_str)s]
-   group:        %(group)s
-   pid:          %(pid)d
-   exit_code:    %(exit_code)d
-   cpu_usage:    %(cpu_usage)f
-   mem_vsize:    %(mem_vsize_bytes)d
-   mem_rss:      %(mem_rss_bytes)d
-   actual_runid: %(actual_runid)d""" % self.__dict__
+        with self._lock:
+            return self._status()
 
 class SheriffDeputy(object):
     """%Sheriff view of a deputy
@@ -323,8 +342,8 @@ class SheriffDeputy(object):
             return self._last_update_utime
 
     def _owns_command(self, cmd_obj):
-        return cmd_obj.command_id in self._commands and \
-                self._commands[cmd_obj.command_id] is cmd_obj
+        return cmd_obj._command_id in self._commands and \
+                self._commands[cmd_obj._command_id] is cmd_obj
 
     def _update_from_deputy_info(self, dep_info_msg):
         # Expects that self._lock is already acquired
@@ -334,21 +353,21 @@ class SheriffDeputy(object):
             # look up the command, or create a new one if it's not found
             if cmd_msg.cmd.command_id in self._commands:
                 cmd = self._commands[cmd_msg.cmd.command_id]
-                old_status = cmd.status()
+                old_status = cmd._status()
             else:
-                cmd = SheriffDeputyCommand()
-                cmd.exec_str = cmd_msg.cmd.exec_str
-                cmd.command_id = cmd_msg.cmd.command_id
-                cmd.group = cmd_msg.cmd.group
-                cmd.auto_respawn = cmd_msg.cmd.auto_respawn
-                cmd.stop_signal = cmd_msg.cmd.stop_signal
-                cmd.desired_runid = cmd_msg.actual_runid
-                cmd.stop_time_allowed = cmd_msg.cmd.stop_time_allowed
+                cmd = SheriffDeputyCommand(self._lock)
+                cmd._exec_str = cmd_msg.cmd.exec_str
+                cmd._command_id = cmd_msg.cmd.command_id
+                cmd._group = cmd_msg.cmd.group
+                cmd._auto_respawn = cmd_msg.cmd.auto_respawn
+                cmd._desired_runid = cmd_msg.actual_runid
+                cmd._stop_signal = cmd_msg.cmd.stop_signal
+                cmd._stop_time_allowed = cmd_msg.cmd.stop_time_allowed
                 self._add_command(cmd)
                 old_status = None
 
             cmd._update_from_cmd_info(cmd_msg)
-            new_status = cmd.status()
+            new_status = cmd._status()
 
             if old_status != new_status:
                 status_changes.append((cmd, old_status, new_status))
@@ -356,14 +375,14 @@ class SheriffDeputy(object):
         updated_ids = [ cmd_msg.cmd.command_id for cmd_msg in dep_info_msg.cmds ]
 
         can_safely_remove = [ cmd for cmd in self._commands.values() \
-                if cmd.scheduled_for_removal and \
-                cmd.command_id not in updated_ids ]
+                if cmd._scheduled_for_removal and \
+                cmd._command_id not in updated_ids ]
 
         for toremove in can_safely_remove:
-            cmd = self._commands[toremove.command_id]
-            old_status = cmd.status()
+            cmd = self._commands[toremove._command_id]
+            old_status = cmd._status()
             status_changes.append((cmd, old_status, None))
-            del self._commands[toremove.command_id]
+            del self._commands[toremove._command_id]
 
         self._last_update_utime = _now_utime()
         self._cpu_load = dep_info_msg.cpu_load
@@ -376,46 +395,46 @@ class SheriffDeputy(object):
         for cmd_msg in orders_msg.cmds:
             if cmd_msg.cmd.command_id in self._commands:
                 cmd = self._commands[cmd_msg.cmd.command_id]
-                old_status = cmd.status()
+                old_status = cmd._status()
             else:
-                cmd = SheriffDeputyCommand()
-                cmd.exec_str = cmd_msg.cmd.exec_str
-                cmd.command_id = cmd_msg.cmd.command_id
-                cmd.group = cmd_msg.cmd.group
-                cmd.auto_respawn = cmd_msg.cmd.auto_respawn
-                cmd.stop_signal = cmd_msg.cmd.stop_signal
-                cmd.stop_time_allowed = cmd_msg.cmd.stop_time_allowed
-                cmd.desired_runid = cmd_msg.desired_runid
+                cmd = SheriffDeputyCommand(self._lock)
+                cmd._exec_str = cmd_msg.cmd.exec_str
+                cmd._command_id = cmd_msg.cmd.command_id
+                cmd._group = cmd_msg.cmd.group
+                cmd._auto_respawn = cmd_msg.cmd.auto_respawn
+                cmd._stop_signal = cmd_msg.cmd.stop_signal
+                cmd._stop_time_allowed = cmd_msg.cmd.stop_time_allowed
+                cmd._desired_runid = cmd_msg.desired_runid
                 self._add_command(cmd)
                 old_status = None
             cmd._update_from_cmd_orders(cmd_msg)
-            new_status = cmd.status()
+            new_status = cmd._status()
             if old_status != new_status:
                 status_changes.append((cmd, old_status, new_status))
         updated_ids = set([ cmd_msg.cmd.command_id for cmd_msg in orders_msg.cmds ])
         for cmd in self._commands.values():
-            if cmd.command_id not in updated_ids:
-                old_status = cmd.status()
-                cmd.scheduled_for_removal = True
-                new_status = cmd.status()
+            if cmd._command_id not in updated_ids:
+                old_status = cmd._status()
+                cmd._scheduled_for_removal = True
+                new_status = cmd._status()
                 if old_status != new_status:
                     status_changes.append((cmd, old_status, new_status))
         return status_changes
 
     def _add_command(self, newcmd):
         assert isinstance(newcmd, SheriffDeputyCommand)
-        self._commands[newcmd.command_id] = newcmd
+        self._commands[newcmd._command_id] = newcmd
 
     def _schedule_for_removal(self, cmd):
         if not self._owns_command(cmd):
             raise KeyError("invalid command")
-        old_status = cmd.status()
-        cmd.scheduled_for_removal = True
+        old_status = cmd._status()
+        cmd._scheduled_for_removal = True
         if not self._last_update_utime:
-            del self._commands[cmd.command_id]
+            del self._commands[cmd._command_id]
             new_status = None
         else:
-            new_status = cmd.status()
+            new_status = cmd._status()
         return ((cmd, old_status, new_status),)
 
     def _make_orders_message(self, sheriff_id):
@@ -425,19 +444,19 @@ class SheriffDeputy(object):
         msg.ncmds = len(self._commands)
         msg.sheriff_id = sheriff_id
         for cmd in self._commands.values():
-            if cmd.scheduled_for_removal:
+            if cmd._scheduled_for_removal:
                 msg.ncmds -= 1
                 continue
             cmd_msg = cmd_desired_t()
             cmd_msg.cmd = cmd_t()
-            cmd_msg.cmd.exec_str = cmd.exec_str
-            cmd_msg.cmd.command_id = cmd.command_id
-            cmd_msg.cmd.group = cmd.group
-            cmd_msg.cmd.auto_respawn = cmd.auto_respawn
-            cmd_msg.cmd.stop_signal = cmd.stop_signal
-            cmd_msg.cmd.stop_time_allowed = cmd.stop_time_allowed
-            cmd_msg.desired_runid = cmd.desired_runid
-            cmd_msg.force_quit = cmd.force_quit
+            cmd_msg.cmd.exec_str = cmd._exec_str
+            cmd_msg.cmd.command_id = cmd._command_id
+            cmd_msg.cmd.group = cmd._group
+            cmd_msg.cmd.auto_respawn = cmd._auto_respawn
+            cmd_msg.cmd.stop_signal = cmd._stop_signal
+            cmd_msg.cmd.stop_time_allowed = cmd._stop_time_allowed
+            cmd_msg.desired_runid = cmd._desired_runid
+            cmd_msg.force_quit = cmd._force_quit
             msg.cmds.append(cmd_msg)
         return msg
 
@@ -532,11 +551,14 @@ class Sheriff(object):
         """Initialize a new Sheriff object.
 
         \param lcm_obj the LCM object to use for communication.  If None, then
-        the sheriff creates a new lcm.LCM() instance.
+        the sheriff creates a new lcm.LCM() instance and spawns a thread that
+        endlessly calls LCM.handle().
         """
         self._lcm = lcm_obj
+        self._lcm_thread = None
         if self._lcm is None:
             self._lcm = lcm.LCM()
+            self._lcm_thread_obj = threading.Thread(target = self._lcm_thread)
         self._lcm.subscribe("PM_INFO", self.on_pmd_info)
         self._lcm.subscribe("PM_ORDERS", self.on_pmd_orders)
         self._deputies = {}
@@ -552,11 +574,11 @@ class Sheriff(object):
         self._lcm.publish("PM_DISCOVER", discover_msg.encode())
 
         # Create a worker thread for periodically publishing orders
-        self._worker_thread = threading.Thread(target = self._worker_thread)
+        self._worker_thread_obj = threading.Thread(target = self._worker_thread)
         self._exiting = False
         self._lock = threading.Lock()
         self._condvar = threading.Condition(self._lock)
-        self._worker_thread.start()
+        self._worker_thread_obj.start()
 
         self._listeners = []
         self._queued_events = []
@@ -683,7 +705,7 @@ class Sheriff(object):
             self._condvar.notify()
 
         # wait for worker thread to exit
-        self._worker_thread.join()
+        self._worker_thread_obj.join()
 
     def get_id(self):
         """Retrieve the sheriff id.
@@ -732,13 +754,13 @@ class Sheriff(object):
             raise ValueError("Invalid deputy")
 
         dep = self._get_or_make_deputy(spec.deputy_id)
-        newcmd = SheriffDeputyCommand()
-        newcmd.exec_str = spec.exec_str
-        newcmd.command_id = spec.command_id
-        newcmd.group = spec.group_name
-        newcmd.auto_respawn = spec.auto_respawn
-        newcmd.stop_signal = spec.stop_signal
-        newcmd.stop_time_allowed = spec.stop_time_allowed
+        newcmd = SheriffDeputyCommand(self._lock)
+        newcmd._exec_str = spec.exec_str
+        newcmd._command_id = spec.command_id
+        newcmd._group = spec.group_name
+        newcmd._auto_respawn = spec.auto_respawn
+        newcmd._stop_signal = spec.stop_signal
+        newcmd._stop_time_allowed = spec.stop_time_allowed
         dep._add_command(newcmd)
         self.__command_added(dep, newcmd)
         self._send_orders()
@@ -755,13 +777,13 @@ class Sheriff(object):
             return self._add_command(spec)
 
     def _start_command(self, cmd):
-        _dbg("start_command [%s]" % cmd.command_id)
+        _dbg("start_command [%s]" % cmd._command_id)
         # self._lock should already be acquired
         if self._is_observer:
             raise ValueError("Can't modify commands in Observer mode")
-        old_status = cmd.status()
+        old_status = cmd._status()
         cmd._start()
-        new_status = cmd.status()
+        new_status = cmd._status()
         deputy = self._get_command_deputy(cmd)
         self._maybe_emit_status_change_signals(deputy,
                 ((cmd, old_status, new_status),))
@@ -781,9 +803,9 @@ class Sheriff(object):
         # self._lock should already be acquired
         if self._is_observer:
             raise ValueError("Can't modify commands in Observer mode")
-        old_status = cmd.status()
+        old_status = cmd._status()
         cmd._restart()
-        new_status = cmd.status()
+        new_status = cmd._status()
         deputy = self._get_command_deputy(cmd)
         self._maybe_emit_status_change_signals(deputy,
                 ((cmd, old_status, new_status),))
@@ -805,9 +827,9 @@ class Sheriff(object):
         # self._lock should already be acquired
         if self._is_observer:
             raise ValueError("Can't modify commands in Observer mode")
-        old_status = cmd.status()
+        old_status = cmd._status()
         cmd._stop()
-        new_status = cmd.status()
+        new_status = cmd._status()
         deputy = self._get_command_deputy(cmd)
         self._maybe_emit_status_change_signals(deputy,
                 ((cmd, old_status, new_status),))
@@ -833,7 +855,7 @@ class Sheriff(object):
         @param exec_str the actual command string to execute.
         """
         with self._lock:
-            cmd.exec_str = exec_str
+            cmd._exec_str = exec_str
 
     def set_command_group(self, cmd, group_name):
         """Set the command group.
@@ -848,9 +870,9 @@ class Sheriff(object):
             if self._is_observer:
                 raise ValueError("Can't modify commands in Observer mode")
     #        deputy = self._get_command_deputy(cmd)
-            old_group = cmd.group
+            old_group = cmd._group
             if old_group != group_name:
-                cmd._set_group(group_name)
+                cmd._group = group_name
                 self.__command_group_changed(cmd)
 
     def set_auto_respawn(self, cmd, newauto_respawn):
@@ -862,21 +884,21 @@ class Sheriff(object):
         restarted.
         """
         with self._lock:
-            cmd.auto_respawn = newauto_respawn
+            cmd._auto_respawn = newauto_respawn
 
     def set_command_stop_signal(self, cmd, new_stop_signal):
         """Set the OS signal that is sent to a command when requesting it to
         stop cleanly.  If the command doesn't cleanly exit within the stop time
         allowed, then it is sent a SIGKILL."""
         with self._lock:
-            cmd.stop_signal = new_stop_signal
+            cmd._stop_signal = new_stop_signal
 
     def set_command_stop_time_allowed(self, cmd, new_stop_time_allowed):
         """Set how much time (seconds) to wait for a command to exit cleanly when
         stopping the command, before sending it a SIGKILL.  Integer values only.
         """
         with self._lock:
-            cmd.stop_time_allowed = int(new_stop_time_allowed)
+            cmd._stop_time_allowed = int(new_stop_time_allowed)
 
     def _schedule_command_for_removal(self, cmd):
         if self._is_observer:
@@ -968,12 +990,12 @@ class Sheriff(object):
             for deputy_id, deputy in self._deputies.items():
                 cmds = deputy._commands.values()
                 if not deputy._commands or \
-                        all([ cmd.scheduled_for_removal for cmd in cmds ]):
+                        all([ cmd._scheduled_for_removal for cmd in cmds ]):
                     del self._deputies[deputy_id]
 
     def _get_command_deputy(self, command):
         for deputy in self._deputies.values():
-            if command.command_id in deputy._commands:
+            if command._command_id in deputy._commands:
                 return deputy
         raise KeyError("No such command")
 
@@ -1026,7 +1048,7 @@ class Sheriff(object):
         group_parts = group_name.split("/")
         for deputy in self._deputies.values():
             for cmd in deputy._commands.values():
-                cmd_group_parts = cmd.group.split("/")
+                cmd_group_parts = cmd._group.split("/")
                 if len(group_parts) <= len(cmd_group_parts) and \
                         all([ cgp == gp for cgp, gp in zip(group_parts,
                             cmd_group_parts)]):
@@ -1045,7 +1067,39 @@ class Sheriff(object):
         with self._lock:
             return self._get_commands_by_group(group_name)
 
-    def load_config(self, config_node, merge_with_existing):
+    @staticmethod
+    def _group_node_to_command_specs(group_node, name_prefix):
+        result = []
+        for cmd_node in group_node.commands:
+            auto_respawn_val = cmd_node.attributes.get("auto_respawn", "").lower()
+            auto_respawn = auto_respawn_val in [ "true", "yes" ]
+            assert group_node.name == cmd_node.attributes["group"]
+
+            spec = SheriffCommandSpec()
+            spec.deputy_id = cmd_node.attributes["deputy"]
+            spec.exec_str = cmd_node.attributes["exec"]
+            spec.command_id = cmd_node.attributes["nickname"]
+            spec.group_name = name_prefix + group_node.name
+            spec.auto_respawn = auto_respawn
+            spec.stop_signal = cmd_node.attributes["stop_signal"]
+            spec.stop_time_allowed = cmd_node.attributes["stop_time_allowed"]
+            if spec.stop_signal == 0:
+                spec.stop_signal = DEFAULT_STOP_SIGNAL
+            if spec.stop_time_allowed == 0:
+                spec.stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED
+
+            result.append(spec)
+
+        for subgroup in group_node.subgroups.values():
+            if group_node.name:
+                result.extend(Sheriff._group_node_to_command_specs(subgroup,
+                    name_prefix + group_node.name + "/"))
+            else:
+                result.extend(Sheriff._group_node_to_command_specs(subgroup,
+                    ""))
+        return result
+
+    def load_config(self, config_node):
         """
         config_node should be an instance of sheriff_config.ConfigNode
         """
@@ -1053,66 +1107,20 @@ class Sheriff(object):
             if self._is_observer:
                 raise ValueError("Can't load config in Observer mode")
 
-            current_command_strs = set()
-            if merge_with_existing:
-                # if merging new config with existing commands, then build an index
-                # of the existing commands.
-                for dep in self._deputies.values():
-                    for cmd in dep._commands.values():
-                        cmdstr = "%s!%s!%s!%s!%s" % (dep.name, cmd.exec_str, cmd.command_id, cmd.group, cmd.auto_respawn)
-                        current_command_strs.add(cmdstr)
-            else:
-                # remove all current commands if we're not merging.
-                for dep in self._deputies.values():
-                    for cmd in dep._commands.values():
-                        self._schedule_command_for_removal(cmd)
+            # remove all current commands
+            for dep in self._deputies.values():
+                for cmd in dep._commands.values():
+                    self._schedule_command_for_removal(cmd)
 
-            commands_to_add = []
-
-            def add_group_commands(group_node, name_prefix):
-                for cmd_node in group_node.commands:
-                    auto_respawn = cmd_node.attributes.get("auto_respawn", "").lower() in [ "true", "yes" ]
-                    assert group_node.name == cmd_node.attributes["group"]
-
-                    add_command = True
-
-                    # if merging is enabled, then only add this command if we don't
-                    # have an entry for it already.
-                    if merge_with_existing:
-                        cmdstr = "%s!%s!%s!%s!%s" % (cmd_node.attributes["deputy"],
-                                cmd_node.attributes["exec"],
-                                cmd_node.attributes["nickname"],
-                                name_prefix + group_node.name, str(auto_respawn))
-                        if cmdstr in current_command_strs:
-                            add_command = False
-
-                    if add_command:
-                        spec = SheriffCommandSpec()
-                        spec.deputy_id = cmd_node.attributes["deputy"]
-                        spec.exec_str = cmd_node.attributes["exec"]
-                        spec.command_id = cmd_node.attributes["nickname"]
-                        spec.group_name = name_prefix + group_node.name
-                        spec.auto_respawn = auto_respawn
-                        spec.stop_signal = cmd_node.attributes["stop_signal"]
-                        spec.stop_time_allowed = cmd_node.attributes["stop_time_allowed"]
-                        if spec.stop_signal == 0:
-                            spec.stop_signal = DEFAULT_STOP_SIGNAL
-                        if spec.stop_time_allowed == 0:
-                            spec.stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED
-
-                        commands_to_add.append(spec)
-
-                for subgroup in group_node.subgroups.values():
-                    if group_node.name:
-                        add_group_commands(subgroup, name_prefix + group_node.name + "/")
-                    else:
-                        add_group_commands(subgroup, "")
-
-            add_group_commands(config_node.root_group, "")
+            # Recursively create a SheriffCommandSpec for all command nodes
+            # starting with the root group node.
+            commands_to_add = Sheriff._group_node_to_command_specs(
+                    config_node.root_group, "")
 
             for spec in commands_to_add:
                 self._add_command(spec)
-    #            _dbg("[%s] %s (%s) -> %s" % (newcmd.group, newcmd.exec_str, newcmd.nickname, cmd.attributes["deputy"]))
+    #            _dbg("[%s] %s (%s) -> %s" % (newcmd.group, newcmd.exec_str,
+    #                  newcmd.nickname, cmd.attributes["deputy"]))
 
     def save_config(self, config_node):
         """Write the current sheriff configuration to the specified file
@@ -1127,14 +1135,18 @@ class Sheriff(object):
             for deputy in self._deputies.values():
                 for cmd in deputy._commands.values():
                     cmd_node = sheriff_config.CommandNode()
-                    cmd_node.attributes["exec"] = cmd.exec_str
-                    cmd_node.attributes["nickname"] = cmd.command_id
+                    cmd_node.attributes["exec"] = cmd._exec_str
+                    cmd_node.attributes["nickname"] = cmd._command_id
                     cmd_node.attributes["deputy"] = deputy._deputy_id
-                    if cmd.auto_respawn:
+                    if cmd._auto_respawn:
                         cmd_node.attributes["auto_respawn"] = "true"
 
-                    group = config_node.get_group(cmd.group, True)
+                    group = config_node.get_group(cmd._group, True)
                     group.add_command(cmd_node)
+
+    def _lcm_thread(self):
+        while not self._exiting:
+            self._lcm.handle_timeout(200)
 
     def _worker_thread(self):
         send_interval = 1.0
