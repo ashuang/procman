@@ -14,7 +14,8 @@ class SheriffDeputyModel(gtk.ListStore):
     NUM_ROWS = range(5)
 
     def __init__(self, _sheriff):
-        super(SheriffDeputyModel, self).__init__(gobject.TYPE_PYOBJECT,
+        super(SheriffDeputyModel, self).__init__(
+                gobject.TYPE_PYOBJECT,
                 gobject.TYPE_STRING, # deputy id
                 gobject.TYPE_STRING, # last update time
                 gobject.TYPE_STRING, # load
@@ -93,12 +94,6 @@ class SheriffDeputyTreeView(gtk.TreeView):
                 self._cleanup_deputies)
         self.deputies_ctxt_menu.show_all()
 
-#        # set some default appearance parameters
-#        self.base_color = gtk.gdk.Color(65535, 65535, 65535)
-#        self.text_color = gtk.gdk.Color(0, 0, 0)
-#        self.set_background_color(self.base_color)
-#        self.set_text_color(self.text_color)
-
     def _on_deputies_tv_button_press_event (self, treeview, event):
         if event.type == gtk.gdk.BUTTON_PRESS and event.button == 3:
             self.deputies_ctxt_menu.popup (None, None, None, event.button, event.time)
@@ -111,54 +106,21 @@ class SheriffDeputyTreeView(gtk.TreeView):
     def _deputy_last_update_cell_data_func (self, column, cell, model, model_iter):
         # bit of a hack to pull out the last update time
         try:
-            last_update = float(model.get_value(model_iter, SheriffDeputyModel.COL_LAST_UPDATE).split()[0])
+            last_update = float(model.get_value(model_iter,
+                SheriffDeputyModel.COL_LAST_UPDATE).split()[0])
         except:
             last_update = None
         if last_update is None or last_update > 5:
             cell.set_property("cell-background-set", True)
             cell.set_property("cell-background", "Red")
-#            cell.set_property("foreground", "Black")
         elif last_update > 2:
             cell.set_property("cell-background-set", True)
             cell.set_property("cell-background", "Yellow")
-#            cell.set_property("foreground", "Black")
         else:
             cell.set_property("cell-background-set", False)
-#            cell.set_property("foreground-set", False)
-
-#    def get_background_color(self):
-#        return self.base_color
-#
-#    def get_text_color(self):
-#        return self.text_color
-#
-#    def set_background_color(self, color):
-#        self.base_color = color
-#        self.modify_base(gtk.STATE_NORMAL, color)
-#        self.modify_base(gtk.STATE_ACTIVE, color)
-#        self.modify_base(gtk.STATE_PRELIGHT, color)
-#
-#    def set_text_color(self, color):
-#        self.text_color = color
-#        self.modify_text(gtk.STATE_NORMAL, color)
-#        self.modify_text(gtk.STATE_ACTIVE, color)
-#        self.modify_text(gtk.STATE_PRELIGHT, color)
 
     def save_settings(self, save_map):
         pass
-#        save_map["deputies_treeview_background_color"] = self.base_color.to_string()
-#        save_map["deputies_treeview_text_color"] = self.text_color.to_string()
 
     def load_settings(self, save_map):
         pass
-#        if "deputies_treeview_background_color" in save_map:
-#            self.set_background_color(gtk.gdk.Color(save_map["deputies_treeview_background_color"]))
-#
-#        if "deputies_treeview_text_color" in save_map:
-#            self.set_text_color(gtk.gdk.Color(save_map["deputies_treeview_text_color"]))
-
-#    def _get_selected_deputies (self):
-#        model, rows = self.deputies_tv.get_selection ().get_selected_rows ()
-#        return [ model.get_value (model.get_iter(path), 0) \
-#                for path in rows ]
-

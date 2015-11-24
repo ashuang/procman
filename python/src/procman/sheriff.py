@@ -265,28 +265,17 @@ class SheriffDeputy(object):
 
     \ingroup python_api
     """
-    def __init__(self, deputy_id):
+    def __init__(self, deputy_id, lock):
         """Initializes a deputy with the specified id.  Do not use this
         constructor directly.  Instead, get a list of deputies from the
         Sheriff.
         """
-
-        ## Deputy id
-        self.deputy_id = deputy_id
-
-        ## Last reported CPU load on the deputy.  Ranges from [0, 1], where 0
-        # is no load and 1 is fully loaded.
-        self.cpu_load = 0
-
-        ## Last reported total memory (in bytes) on the deputy.
-        self.phys_mem_total_bytes = 0
-
-        ## Last reported free memory (in bytes) on the deputy.
-        self.phys_mem_free_bytes = 0
-
-        ## Last time info from te deputy was received.  Zero if no info has
-        # ever been received.  Represented in microseconds since the epoch.
-        self.last_update_utime = 0
+        self._deputy_id = deputy_id
+        self._cpu_load = 0
+        self._phys_mem_total_bytes = 0
+        self._phys_mem_free_bytes = 0
+        self._last_update_utime = 0
+        self._lock = lock
 
         # Dictionary of commands owned by the deputy
         self._commands = {}
@@ -296,22 +285,50 @@ class SheriffDeputy(object):
 
         @return a list of SheriffDeputyCommand objects
         """
-        return self._commands.values()
+        with self._lock:
+            return self._commands.values()
 
-    def owns_command(self, cmd_obj):
-        """Check to see if this deputy manages the specified command
+    @property
+    def deputy_id(self):
+        """Deputy id"""
+        with self._lock:
+            return self._deputy_id
 
-        @param cmd_obj a SheriffDeputyCommand object.
-
-        @return True if this deputy object manages \p command, False if not.
+    @property
+    def cpu_load(self):
+        """Last reported CPU load on the deputy.  Ranges from [0, 1], where 0
+        is no load and 1 is fully loaded.
         """
+        with self._lock:
+            return self._cpu_load
+
+    @property
+    def phys_mem_total_bytes(self):
+        """Last reported total memory (in bytes) on the deputy."""
+        with self._lock:
+            return self._phys_mem_total_bytes
+
+    @property
+    def phys_mem_free_bytes(self):
+        """Last reported free memory (in bytes) on the deputy."""
+        with self._lock:
+            return self._phys_mem_free_bytes
+
+    @property
+    def last_update_utime(self):
+        """Last time info from te deputy was received.  Zero if no info has
+        ever been received.  Represented in microseconds since the epoch.
+        """
+        with self._lock:
+            return self._last_update_utime
+
+    def _owns_command(self, cmd_obj):
         return cmd_obj.command_id in self._commands and \
                 self._commands[cmd_obj.command_id] is cmd_obj
 
     def _update_from_deputy_info(self, dep_info_msg):
-        """
-        @dep_info_msg: an instance of procman.deputy_info_t
-        """
+        # Expects that self._lock is already acquired
+
         status_changes = []
         for cmd_msg in dep_info_msg.cmds:
             # look up the command, or create a new one if it's not found
@@ -327,7 +344,6 @@ class SheriffDeputy(object):
                 cmd.stop_signal = cmd_msg.cmd.stop_signal
                 cmd.desired_runid = cmd_msg.actual_runid
                 cmd.stop_time_allowed = cmd_msg.cmd.stop_time_allowed
-                # TODO handle options
                 self._add_command(cmd)
                 old_status = None
 
@@ -349,10 +365,10 @@ class SheriffDeputy(object):
             status_changes.append((cmd, old_status, None))
             del self._commands[toremove.command_id]
 
-        self.last_update_utime = _now_utime()
-        self.cpu_load = dep_info_msg.cpu_load
-        self.phys_mem_total_bytes = dep_info_msg.phys_mem_total_bytes
-        self.phys_mem_free_bytes = dep_info_msg.phys_mem_free_bytes
+        self._last_update_utime = _now_utime()
+        self._cpu_load = dep_info_msg.cpu_load
+        self._phys_mem_total_bytes = dep_info_msg.phys_mem_total_bytes
+        self._phys_mem_free_bytes = dep_info_msg.phys_mem_free_bytes
         return status_changes
 
     def _update_from_deputy_orders(self, orders_msg):
@@ -391,11 +407,11 @@ class SheriffDeputy(object):
         self._commands[newcmd.command_id] = newcmd
 
     def _schedule_for_removal(self, cmd):
-        if not self.owns_command(cmd):
+        if not self._owns_command(cmd):
             raise KeyError("invalid command")
         old_status = cmd.status()
         cmd.scheduled_for_removal = True
-        if not self.last_update_utime:
+        if not self._last_update_utime:
             del self._commands[cmd.command_id]
             new_status = None
         else:
@@ -405,7 +421,7 @@ class SheriffDeputy(object):
     def _make_orders_message(self, sheriff_id):
         msg = orders_t()
         msg.utime = _now_utime()
-        msg.deputy_id = self.deputy_id
+        msg.deputy_id = self._deputy_id
         msg.ncmds = len(self._commands)
         msg.sheriff_id = sheriff_id
         for cmd in self._commands.values():
@@ -492,13 +508,12 @@ class Sheriff(object):
     \ingroup python_api
 
     The Sheriff class provides the primary interface for controlling processes
-    using the Procman Python API.  It requires a GLib event loop to run.
+    using the Procman Python API.
 
     example usage:
     \code
     import procman
 
-    lcm_obj = lcm.LCM()
     sheriff = procman.Sheriff(lcm_obj)
 
     # add commands or load a config file
@@ -507,20 +522,10 @@ class Sheriff(object):
         lcm_obj.handle()
     \endcode
 
-    ## Signals ##
-    The Sheriff exposes a number of signals that you can use to
-    register a callback function that gets called when a particular event
-    happens.
-
-    For example, to be notified when the status of a command changes:
-
-    \code
-    def on_command_status_changed(cmd_obj, old_status, new_status):
-        print("Command %s status changed from %s -> %s" % (cmd_obj.command_id,
-            old_status, new_status)
-
-    sheriff.command_status_changed.connect(on_command_status_changed)
-    \endcode
+    ## SheriffListener ##
+    To be notified of when a command is added, started, stopped, etc., create a
+    subclass of procman.SheriffListener and attach it to the sheriff via
+    add_listener().
     """
 
     def __init__ (self, lcm_obj = None):
@@ -559,7 +564,7 @@ class Sheriff(object):
     def _get_or_make_deputy(self, deputy_id):
         # _lock should already be acquired
         if deputy_id not in self._deputies:
-            self._deputies[deputy_id] = SheriffDeputy(deputy_id)
+            self._deputies[deputy_id] = SheriffDeputy(deputy_id, self._lock)
         return self._deputies[deputy_id]
 
     def __deputy_info_received(self, deputy_obj):
@@ -613,7 +618,7 @@ class Sheriff(object):
     def _get_command_deputy(self, cmd):
         # _lock should already be acquired
         for deputy in self._deputies.values():
-            if deputy.owns_command(cmd):
+            if deputy._owns_command(cmd):
                 return deputy
         raise KeyError()
 
@@ -648,7 +653,7 @@ class Sheriff(object):
 
             # Check if this is the first time we've heard from the deputy and
             # we already have a desired state for the deputy.
-            if not deputy.last_update_utime and deputy._commands:
+            if not deputy._last_update_utime and deputy._commands:
                 _dbg("First update from [%s]" % info_msg.deputy_id)
 
             status_changes = deputy._update_from_deputy_info(info_msg)
@@ -694,7 +699,7 @@ class Sheriff(object):
             raise ValueError("Can't send orders in Observer mode")
         for deputy in self._deputies.values():
             # only send orders to a deputy if we've heard from it.
-            if deputy.last_update_utime > 0:
+            if deputy._last_update_utime > 0:
                 msg = deputy._make_orders_message(self._id)
                 self._lcm.publish("PM_ORDERS", msg.encode())
 
@@ -1124,7 +1129,7 @@ class Sheriff(object):
                     cmd_node = sheriff_config.CommandNode()
                     cmd_node.attributes["exec"] = cmd.exec_str
                     cmd_node.attributes["nickname"] = cmd.command_id
-                    cmd_node.attributes["deputy"] = deputy.deputy_id
+                    cmd_node.attributes["deputy"] = deputy._deputy_id
                     if cmd.auto_respawn:
                         cmd_node.attributes["auto_respawn"] = "true"
 
