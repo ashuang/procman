@@ -2,8 +2,6 @@
 
 #include <sstream>
 
-#include <glib.h>
-
 namespace procman {
 
 std::vector<std::string> Split(const std::string& input,
@@ -52,10 +50,10 @@ class VariableExpander {
 
   private:
     void Process() {
-      while(EatToken()) {
-        const char c = cur_tok_;
+      while(NextChar()) {
+        const char c = cur_char_;
         if('\\' == c) {
-          if(EatToken()) {
+          if(NextChar()) {
             output_.put(c);
           } else {
             output_.put('\\');
@@ -71,45 +69,45 @@ class VariableExpander {
       }
     }
 
-    bool HasToken() {
+    bool HasChar() const {
       return pos_ < input_.size();
     }
 
-    char PeekToken() {
-      return HasToken() ? input_[pos_] : 0;
+    char PeekChar() const {
+      return HasChar() ? input_[pos_] : 0;
     }
 
-    bool EatToken() {
-      if(HasToken()) {
-        cur_tok_ = input_[pos_];
+    bool NextChar() {
+      if(HasChar()) {
+        cur_char_ = input_[pos_];
         pos_++;
         return true;
       } else {
-        cur_tok_ = 0;
+        cur_char_ = 0;
         return false;
       }
     }
 
     bool ParseVariable() {
       int start = pos_;
-      if(!HasToken()) {
+      if(!HasChar()) {
         output_.put('$');
         return false;
       }
-      int has_braces = PeekToken() == '{';
+      int has_braces = PeekChar() == '{';
       if(has_braces) {
-        EatToken();
+        NextChar();
       }
       int varname_start = pos_;
       int varname_len = 0;
-      while(HasToken() &&
-          IsValidVariableCharacter(PeekToken(), varname_len)) {
+      while(HasChar() &&
+          IsValidVariableCharacter(PeekChar(), varname_len)) {
         varname_len++;
-        EatToken();
+        NextChar();
       }
       char* varname = strndup(&input_[varname_start], varname_len);
       bool braces_ok = true;
-      if(has_braces && ((!EatToken()) || cur_tok_ != '}')) {
+      if(has_braces && ((!NextChar()) || cur_char_ != '}')) {
         braces_ok = false;
       }
       bool ok = varname_len && braces_ok;
@@ -143,9 +141,9 @@ class VariableExpander {
           ((0 == pos) && (strchr(valid_follow, c) != NULL)));
     }
 
-    std::string input_;
+    const std::string& input_;
     int pos_;
-    char cur_tok_;
+    char cur_char_;
     std::stringstream output_;
     const StringStringMap* variables_;
 };
@@ -157,32 +155,78 @@ std::string ExpandVariables(const std::string& input,
 
 class ArgSeparator {
   public:
+    ArgSeparator(const std::string& input) :
+      input_(input),
+      pos_(0) {
+      Process();
+    }
+
+    std::vector<std::string> Result() {
+      return result_;
+    }
 
   private:
+    void Process() {
+      while (ParseArg()) {
+        result_.emplace_back(&cur_arg_[0], cur_arg_.size());
+      }
+    }
+
+    bool ParseArg() {
+      cur_arg_.clear();
+
+      // Skip leading whitespace
+      while (NextChar() && std::isspace(cur_char_)) {}
+      if (!HasChar()) {
+        return false;
+      }
+
+      bool quoted = false;
+      char quote_char = 0;
+      do {
+        if (cur_char_ == '\\') {
+          cur_arg_.push_back(NextChar() ? cur_char_ : '\\');
+        } else if (!quoted && cur_char_ == '\'') {
+          quoted = true;
+          quote_char = '\'';
+        } else if (!quoted && cur_char_ == '"') {
+          quoted = true;
+          quote_char = '"';
+        } else if (quoted && quote_char == cur_char_) {
+          quoted = false;
+        } else if (!quoted && std::isspace(cur_char_)) {
+          return true;
+        } else {
+          cur_arg_.push_back(cur_char_);
+        }
+      } while (NextChar());
+      return true;
+    }
+
+    bool HasChar() const {
+      return pos_ < input_.size();
+    }
+
+    bool NextChar() {
+      if(HasChar()) {
+        cur_char_ = input_[pos_];
+        pos_++;
+        return true;
+      } else {
+        cur_char_ = 0;
+        return false;
+      }
+    }
+
+    const std::string& input_;
+    int pos_;
+    char cur_char_;
+    std::vector<std::string> result_;
+    std::vector<char> cur_arg_;
 };
 
 std::vector<std::string> SeparateArgs(const std::string& input) {
-  // TODO don't use g_shell_parse_argv... it's not good with escape characters
-  char** argv = NULL;
-  int argc = -1;
-  GError *err = NULL;
-  gboolean parsed = g_shell_parse_argv(input.c_str(), &argc, &argv, &err);
-
-  if(!parsed || err) {
-    // unable to parse the command string as a Bourne shell command.
-    // Do the simple thing and split it on spaces.
-    std::vector<std::string> args = Split(input, " \t\n", 0);
-    args.erase(std::remove_if(args.begin(), args.end(),
-          [](const std::string& v) { return v.empty(); }), args.end());
-    return args;
-  }
-
-  std::vector<std::string> result(argc);
-  for (int i = 0; i < argc; ++i) {
-    result[i] = argv[0];
-  }
-  Strfreev(argv);
-  return result;
+  return ArgSeparator(input).Result();
 }
 
 }  // namespace procman

@@ -9,8 +9,7 @@ int signal_pipe_init (void);
 // cleans up resources used by the signal_pipe
 int signal_pipe_cleanup (void);
 
-// specifies that signal should be caught by signal_pipe and converted to a
-// glib event
+// specifies that signal should be caught by signal_pipe
 void signal_pipe_add_signal(int signum);
 
 // When a POSIX signal is caught, the signal number is written to this fd as an
