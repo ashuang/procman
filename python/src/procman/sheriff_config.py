@@ -149,7 +149,7 @@ class CommandNode(object):
                 "exec" : None,
                 "deputy" : None,
                 "group" : "",
-                "nickname" : "",
+                "command_id" : "",
                 "stop_signal" : 0,
                 "stop_time_allowed" : 0
                 }
@@ -157,17 +157,14 @@ class CommandNode(object):
     def to_config_string(self, indent = 0):
         s = "    " * indent
         lines = []
-        nickname = self.attributes["nickname"]
-        if len(nickname):
-            lines.append (s + "cmd \"%s\" {" % escape_str(nickname))
-        else:
-            lines.append (s + "cmd {")
+        command_id = self.attributes["command_id"]
+        lines.append (s + "cmd \"%s\" {" % escape_str(command_id))
         pairs = self.attributes.items()
         pairs.sort()
         for key, val in pairs:
             if not val:
                 continue
-            if key in [ "group", "nickname" ]:
+            if key in [ "group", "command_id" ]:
                 continue
             lines.append (s + "    %s = \"%s\";" % (key, escape_str(val)))
         lines.append (s + "}")
@@ -421,9 +418,9 @@ class Parser:
     def _parse_command (self):
         cmd = CommandNode ()
         if self._eat_token(TokString):
-            cmd.attributes["nickname"] = self._cur_tok.val
+            cmd.attributes["command_id"] = self._cur_tok.val
             if "/" in self._cur_tok.val:
-                self._fail("'/' character not allowed in command name")
+                self._fail("'/' character not allowed in command id")
         self._eat_token_or_fail (TokOpenStruct, "Expected '{'")
         self._parse_command_param_list (cmd)
         self._eat_token_or_fail (TokCloseStruct, "Expected '}'")

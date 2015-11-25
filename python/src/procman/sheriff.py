@@ -1078,7 +1078,7 @@ class Sheriff(object):
             spec = SheriffCommandSpec()
             spec.deputy_id = cmd_node.attributes["deputy"]
             spec.exec_str = cmd_node.attributes["exec"]
-            spec.command_id = cmd_node.attributes["nickname"]
+            spec.command_id = cmd_node.attributes["command_id"]
             spec.group_name = name_prefix + group_node.name
             spec.auto_respawn = auto_respawn
             spec.stop_signal = cmd_node.attributes["stop_signal"]
@@ -1120,7 +1120,7 @@ class Sheriff(object):
             for spec in commands_to_add:
                 self._add_command(spec)
     #            _dbg("[%s] %s (%s) -> %s" % (newcmd.group, newcmd.exec_str,
-    #                  newcmd.nickname, cmd.attributes["deputy"]))
+    #                  newcmd.command_id, cmd.attributes["deputy"]))
 
     def save_config(self, config_node):
         """Write the current sheriff configuration to the specified file
@@ -1136,7 +1136,7 @@ class Sheriff(object):
                 for cmd in deputy._commands.values():
                     cmd_node = sheriff_config.CommandNode()
                     cmd_node.attributes["exec"] = cmd._exec_str
-                    cmd_node.attributes["nickname"] = cmd._command_id
+                    cmd_node.attributes["command_id"] = cmd._command_id
                     cmd_node.attributes["deputy"] = deputy._deputy_id
                     if cmd._auto_respawn:
                         cmd_node.attributes["auto_respawn"] = "true"
