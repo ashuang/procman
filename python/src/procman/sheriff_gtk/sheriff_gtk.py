@@ -101,6 +101,7 @@ class SheriffGtk(SheriffListener):
         self.load_dlg = None
         self.save_dlg = None
         self.load_save_dir = None
+        self.cfg_to_load = None
         if BUILD_PREFIX and os.path.exists("%s/data/procman" % BUILD_PREFIX):
             self.load_save_dir = "%s/data/procman" % BUILD_PREFIX
 
@@ -196,6 +197,8 @@ class SheriffGtk(SheriffListener):
 
     def command_removed(self, deputy_obj, cmd_obj):
         self._schedule_cmds_update()
+        if self.cfg_to_load and not self.sheriff.get_all_commands():
+            glib.idle_add(self._do_load_config)
 
     def command_status_changed(self, cmd_obj, old_status, new_status):
         self._schedule_cmds_update()
@@ -486,9 +489,23 @@ class SheriffGtk(SheriffListener):
             self.edit_script_mi.set_sensitive(False)
             self.remove_script_mi.set_sensitive(False)
 
+    def _do_load_config(self):
+        assert self.cfg_to_load is not None
+        self.sheriff.load_config(self.cfg_to_load)
+        self.script_manager.load_config(self.cfg_to_load)
+        self.cfg_to_load = None
+
     def load_config(self, cfg):
-        self.sheriff.load_config(cfg)
-        self.script_manager.load_config(cfg)
+        self.cfg_to_load = cfg
+
+        # Automatically remove all existing commands before actually loading a
+        # config file.
+        current_cmds = self.sheriff.get_all_commands()
+        if current_cmds:
+            for cmd in current_cmds:
+                self.sheriff.schedule_command_for_removal(cmd)
+        else:
+            self._do_load_config()
 
     # GTK signal handlers
     def on_load_cfg_mi_activate(self, *args):

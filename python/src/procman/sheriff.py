@@ -20,8 +20,8 @@ from procman_lcm.discovery_t import discovery_t
 import procman.sheriff_config as sheriff_config
 
 def _dbg(text):
-    return
-#    sys.stderr.write("%s\n" % text)
+#    return
+    sys.stderr.write("%s\n" % text)
 
 def _warn(text):
     sys.stderr.write("[WARNING] %s\n" % text)
@@ -1086,10 +1086,8 @@ class Sheriff(object):
             if self._is_observer:
                 raise ValueError("Can't load config in Observer mode")
 
-            # remove all current commands
-            for dep in self._deputies.values():
-                for cmd in dep._commands.values():
-                    self._schedule_command_for_removal(cmd)
+            if self._get_all_commands():
+                raise RuntimeError("Remove all commands before loading a config file")
 
             # Recursively create a SheriffCommandSpec for all command nodes
             # starting with the root group node.
@@ -1098,8 +1096,8 @@ class Sheriff(object):
 
             for spec in commands_to_add:
                 self._add_command(spec)
-    #            _dbg("[%s] %s (%s) -> %s" % (newcmd.group, newcmd.exec_str,
-    #                  newcmd.command_id, cmd.attributes["deputy"]))
+#            _dbg("[%s] %s (%s) -> %s" % (newcmd.group, newcmd.exec_str,
+#                  newcmd.command_id, cmd.attributes["deputy"]))
 
     def save_config(self, config_node):
         """Write the current sheriff configuration to the specified file
