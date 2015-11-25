@@ -15,7 +15,7 @@ class AddModifyCommandDialog (gtk.Dialog):
             initial_group="", initial_auto_respawn=False,
             initial_stop_signal=DEFAULT_STOP_SIGNAL,
             initial_stop_time_allowed=DEFAULT_STOP_TIME_ALLOWED,
-            cmd_id_sensitive=True):
+            is_add=True):
         # add command dialog
         gtk.Dialog.__init__ (self, "Add/Modify Command", parent,
                 gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
@@ -38,28 +38,30 @@ class AddModifyCommandDialog (gtk.Dialog):
             self.deputy_cb.set_active (0)
 
         table.attach (self.deputy_cb, 1, 2, 0, 1)
+        if not is_add:
+            self.deputy_cb.set_sensitive(False)
         self.deputies = deputies
 
-        # command name
-        table.attach (gtk.Label ("Command"), 0, 1, 1, 2, 0, 0)
-        self.name_te = gtk.Entry ()
-        self.name_te.set_text (initial_cmd)
-        self.name_te.set_width_chars (60)
-        table.attach (self.name_te, 1, 2, 1, 2)
-        self.name_te.connect ("activate",
-                lambda e: self.response (gtk.RESPONSE_ACCEPT))
-        self.name_te.grab_focus ()
-
         # command id
-        table.attach (gtk.Label ("Id"), 0, 1, 2, 3, 0, 0)
+        table.attach (gtk.Label ("Id"), 0, 1, 1, 2, 0, 0)
         self.cmd_id_te = gtk.Entry ()
         self.cmd_id_te.set_text (initial_cmd_id)
         self.cmd_id_te.set_width_chars (60)
-        table.attach (self.cmd_id_te, 1, 2, 2, 3)
+        table.attach (self.cmd_id_te, 1, 2, 1, 2)
         self.cmd_id_te.connect ("activate",
                 lambda e: self.response (gtk.RESPONSE_ACCEPT))
-        if not cmd_id_sensitive:
+        if not is_add:
             self.cmd_id_te.set_sensitive(False)
+
+        # command name
+        table.attach (gtk.Label ("Command"), 0, 1, 2, 3, 0, 0)
+        self.name_te = gtk.Entry ()
+        self.name_te.set_text (initial_cmd)
+        self.name_te.set_width_chars (60)
+        table.attach (self.name_te, 1, 2, 2, 3)
+        self.name_te.connect ("activate",
+                lambda e: self.response (gtk.RESPONSE_ACCEPT))
+        self.name_te.grab_focus ()
 
         # group
         table.attach (gtk.Label ("Group"), 0, 1, 3, 4, 0, 0)

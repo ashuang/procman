@@ -1,6 +1,7 @@
 import gtk
 import pango
 
+from procman.sheriff import SheriffCommandSpec
 import procman.sheriff as sheriff
 import procman.sheriff_gtk.command_model as cm
 import procman.sheriff_gtk.sheriff_dialogs as sd
@@ -274,7 +275,6 @@ class SheriffCommandTreeView(gtk.TreeView):
             if pathinfo is None:
                 self.get_selection ().unselect_all ()
 
-
     def _do_edit_command_dialog(self, cmds):
         unchanged_val = "[Unchanged]"
 
@@ -344,11 +344,10 @@ class SheriffCommandTreeView(gtk.TreeView):
                                          cur_group, cur_auto_respawn,
                                          cur_stop_signal,
                                          cur_stop_time_allowed,
-                                         cmd_id_sensitive=False)
+                                         is_add=False)
 
         while dlg.run () == gtk.RESPONSE_ACCEPT:
             new_exec_str = dlg.get_command()
-            newdeputy = dlg.get_deputy()
             newgroup = dlg.get_group()
             newauto_respawn = dlg.get_auto_respawn()
             new_stop_signal = dlg.get_stop_signal()
@@ -356,9 +355,6 @@ class SheriffCommandTreeView(gtk.TreeView):
             cmd_ind = 0
 
             for cmd in cmds:
-                if newdeputy != old_deputies[cmd_ind] and newdeputy != unchanged_val:
-                    cmd = self.sheriff.move_cmd_to_deputy(cmd, newdeputy)
-
                 if new_exec_str != cmd.exec_str and new_exec_str != unchanged_val:
                     self.sheriff.set_command_exec(cmd, new_exec_str)
 

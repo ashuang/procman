@@ -918,27 +918,6 @@ class Sheriff(object):
         with self._lock:
             self._schedule_command_for_removal(cmd)
 
-    def move_cmd_to_deputy(self, cmd, new_deputy_id):
-        """Move a command from one deputy to another.  This removes the command
-        from one deputy, and creates it in another.  On return, the passed in
-        command object is no longer valid and should not be used.
-
-        @param cmd a SheriffDeputyCommand object to move.  This object is invalidated by this method.
-        @param new_deputy_id the id of the new deputy for the command.
-
-        @return the newly created command
-        """
-        self.schedule_command_for_removal(cmd)
-        spec = SheriffCommandSpec()
-        spec.deputy_id = new_deputy_id
-        spec.exec_str = cmd.exec_str
-        spec.command_id = cmd.command_id
-        spec.group_name = cmd.group
-        spec.auto_respawn = cmd.auto_respawn
-        spec.stop_signal = cmd.stop_signal
-        spec.stop_time_allowed = cmd.stop_time_allowed
-        return self.add_command(spec)
-
     def set_observer(self, is_observer):
         """Set the sheriff into observation mode, or remove it from observation
         mode.
