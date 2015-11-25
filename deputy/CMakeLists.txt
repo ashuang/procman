@@ -11,6 +11,7 @@ endif()
 
 add_executable(procman-deputy
     ${procinfo_cpp}
+    exec_string_utils.cpp
     procman.cpp
     procman_deputy.cpp
     signal_pipe.cpp)

@@ -18,10 +18,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-#include <sstream>
-
-#include <glib.h>
-
+#include "exec_string_utils.hpp"
 #include "procman.hpp"
 #include "procinfo.hpp"
 
@@ -47,155 +44,6 @@ static void dbgt (const char *fmt, ...) {
 
     fprintf (stderr, "%s %s", timebuf, buf);
 }
-
-static std::vector<std::string> Split(const std::string& input,
-    const std::string& delimeters,
-    int max_items) {
-  std::vector<std::string> result;
-
-  int tok_begin = 0;
-  int tok_end = 0;
-  while (tok_begin < input.size()) {
-    if (result.size() == max_items - 1) {
-      result.emplace_back(&input[tok_begin]);
-      return result;
-    }
-
-    for (tok_end = tok_begin;
-        tok_end < input.size() &&
-        !strchr(delimeters.c_str(), input[tok_end]);
-        ++tok_end) {}
-
-    result.emplace_back(&input[tok_begin], tok_end - tok_begin);
-
-    tok_begin = tok_end + 1;
-  }
-
-  return result;
-}
-
-static void strfreev(char** vec) {
-  for (char** ptr = vec; *ptr; ++ptr) {
-    free(*ptr);
-  }
-}
-
-class VariableExpander {
-  public:
-    /**
-     * Do variable expansion on a command argument.  This searches the argument for
-     * text of the form $VARNAME and ${VARNAME}.  For each discovered variable, it
-     * then expands the variable.  Values defined in the hashtable vars are used
-     * first, followed by environment variable values.  If a variable expansion
-     * fails, then the corresponding text is left unchanged.
-     */
-    std::string ExpandVariables(const char* input,
-        const StringStringMap& vars) {
-      input_ = input;
-      input_len_ = strlen(input_);
-      pos_ = 0;
-      variables_ = &vars;
-
-      while(EatToken()) {
-        const char c = cur_tok_;
-        if('\\' == c) {
-          if(EatToken()) {
-            output_.put(c);
-          } else {
-            output_.put('\\');
-          }
-          continue;
-        }
-        // variable?
-        if('$' == c) {
-          ParseVariable();
-        } else {
-          output_.put(c);
-        }
-      }
-      return output_.str();
-    }
-
-  private:
-    bool HasToken() {
-      return pos_ < input_len_;
-    }
-
-    char PeekToken() {
-      return HasToken() ? input_[pos_] : 0;
-    }
-
-    bool EatToken() {
-      if(HasToken()) {
-        cur_tok_ = input_[pos_];
-        pos_++;
-        return true;
-      } else {
-        cur_tok_ = 0;
-        return false;
-      }
-    }
-
-    bool ParseVariable() {
-      int start = pos_;
-      if(!HasToken()) {
-        output_.put('$');
-        return false;
-      }
-      int has_braces = PeekToken() == '{';
-      if(has_braces) {
-        EatToken();
-      }
-      int varname_start = pos_;
-      int varname_len = 0;
-      while(HasToken() &&
-          IsValidVariableCharacter(PeekToken(), varname_len)) {
-        varname_len++;
-        EatToken();
-      }
-      char* varname = strndup(&input_[varname_start], varname_len);
-      bool braces_ok = true;
-      if(has_braces && ((!EatToken()) || cur_tok_ != '}')) {
-        braces_ok = false;
-      }
-      bool ok = varname_len && braces_ok;
-      if (ok) {
-        // first lookup the variable in our stored table
-        const char* val = nullptr;
-        auto iter = variables_->find(varname);
-        if (iter != variables_->end()) {
-          val = iter->second.c_str();
-        } else {
-          val = getenv(varname);
-        }
-        // if that fails, then check for a similar environment variable
-        if (val) {
-          output_ << val;
-        } else {
-          ok = false;
-        }
-      }
-      if (!ok) {
-        output_.write(&input_[start - 1], pos_ - start + 1);
-      }
-      free(varname);
-      return ok;
-    }
-
-    static bool IsValidVariableCharacter(char c, int pos) {
-      const char* valid_start = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
-      const char* valid_follow = "1234567890";
-      return (strchr(valid_start, c) != NULL ||
-          ((0 == pos) && (strchr(valid_follow, c) != NULL)));
-    }
-
-    const char* input_;
-    int input_len_;
-    int pos_;
-    char cur_tok_;
-    std::stringstream output_;
-    const StringStringMap* variables_;
-};
 
 ProcmanOptions ProcmanOptions::Default() {
   ProcmanOptions result;
@@ -236,12 +84,6 @@ int Procman::StartCommand(ProcmanCommandPtr cmd) {
         int pid = forkpty(&stdin_fd, NULL, NULL, NULL);
         cmd->SetStdinFd(stdin_fd);
         if (0 == pid) {
-//            // block SIGINT (only allow the procman to kill the process now)
-//            sigset_t toblock;
-//            sigemptyset (&toblock);
-//            sigaddset (&toblock, SIGINT);
-//            sigprocmask (SIG_BLOCK, &toblock, NULL);
-
             // set environment variables from the beginning of the command
           for (auto& item : cmd->environment_) {
             setenv(item.first.c_str(), item.second.c_str(), 1);
@@ -279,8 +121,7 @@ int Procman::StartCommand(ProcmanCommandPtr cmd) {
     return 0;
 }
 
-int Procman::KillCommmand(ProcmanCommandPtr cmd, int signum)
-{
+int Procman::KillCommmand(ProcmanCommandPtr cmd, int signum) {
   if (0 == cmd->Pid()) {
     dbgt ("[%s] has no PID.  not stopping (already dead)\n", cmd->Id().c_str());
     return -EINVAL;
@@ -384,52 +225,32 @@ int Procman::CloseDeadPipes(ProcmanCommandPtr cmd) {
 
 void ProcmanCommand::PrepareArgsAndEnvironment(const StringStringMap& variables) {
   if (argv_) {
-    strfreev(argv_);
+    Strfreev(argv_);
     argv_ = NULL;
   }
   environment_.clear();
 
-  // TODO don't use g_shell_parse_argv... it's not good with escape characters
-  char** argv=NULL;
-  int argc = -1;
-  GError *err = NULL;
-  gboolean parsed = g_shell_parse_argv(exec_str_.c_str(), &argc,
-      &argv, &err);
+  const std::vector<std::string> args = SeparateArgs(exec_str_);
 
-  if(!parsed || err) {
-    // unable to parse the command string as a Bourne shell command.
-    // Do the simple thing and split it on spaces.
-    std::vector<std::string> args = Split(exec_str_, " \t\n", 0);
-    args.erase(std::remove_if(args.begin(), args.end(),
-          [](const std::string& v) { return v.empty(); }), args.end());
-    argv_ = (char**) calloc(args.size() + 1, sizeof(char*));
-    argc_ = args.size();
-    for (int i = 0; i < argc_; ++i) {
-      argv_[i] = strdup(args[i].c_str());
-    }
-    g_error_free(err);
-    return;
-  }
+  // Count environment variables
+  int num_env_vars=0;
+  for (num_env_vars = 0;
+      strchr(args[num_env_vars].c_str(), '=');
+      ++num_env_vars) {}
 
-  // extract environment variables
-  int envCount=0;
-  char * equalSigns[512];
-  while((equalSigns[envCount] = strchr(argv[envCount],'=')))
-    envCount++;
-  argc_ = argc - envCount;
+  // Extract environment variables and expand variables
+  argc_ = args.size() - num_env_vars;
   argv_ = (char**) calloc(argc_ + 1, sizeof(char**));
-  for (int i = 0; i < argc; i++) {
-    if (i < envCount) {
-      std::vector<std::string> parts = Split(argv[i], "=", 2);
+  for (int i = 0; i < args.size(); i++) {
+    if (i < num_env_vars) {
+      const std::vector<std::string> parts = Split(args[i], "=", 2);
       environment_[parts[0]] = parts[1];
     } else {
       // substitute variables
-      VariableExpander expander;
-      const std::string arg = expander.ExpandVariables(argv[i], variables);
-      argv_[i - envCount] = strdup(arg.c_str());
+      const std::string arg = ExpandVariables(args[i], variables);
+      argv_[i - num_env_vars] = strdup(arg.c_str());
     }
   }
-  strfreev(argv);
 }
 
 ProcmanCommand::ProcmanCommand(const std::string& exec_str,
@@ -441,12 +262,11 @@ ProcmanCommand::ProcmanCommand(const std::string& exec_str,
   stdout_fd_(-1),
   exit_status_(0),
   argc_(0),
-  argv_(nullptr)
-{}
+  argv_(nullptr) {}
 
 ProcmanCommand::~ProcmanCommand() {
   if (argv_) {
-    strfreev (argv_);
+    Strfreev (argv_);
   }
 }
 
@@ -468,8 +288,7 @@ ProcmanCommandPtr Procman::AddCommand(const std::string& exec_str, const std::st
   return newcmd;
 }
 
-bool Procman::RemoveCommand(ProcmanCommandPtr cmd)
-{
+bool Procman::RemoveCommand(ProcmanCommandPtr cmd) {
   CheckCommand(cmd);
 
   // stop the command (if it's running)
@@ -486,8 +305,7 @@ bool Procman::RemoveCommand(ProcmanCommandPtr cmd)
   return true;
 }
 
-CommandStatus Procman::GetCommandStatus(ProcmanCommandPtr cmd)
-{
+CommandStatus Procman::GetCommandStatus(ProcmanCommandPtr cmd) {
   if (cmd->Pid() > 0) {
     return PROCMAN_CMD_RUNNING;
   }
