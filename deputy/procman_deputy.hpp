@@ -4,16 +4,13 @@
 #include <set>
 #include <string>
 
-#include <QObject>
-#include <QSocketNotifier>
-#include <QTimer>
-
 #include <lcm/lcm-cpp.hpp>
 
 #include <lcmtypes/procman_lcm/orders_t.hpp>
 #include <lcmtypes/procman_lcm/discovery_t.hpp>
 #include <lcmtypes/procman_lcm/deputy_info_t.hpp>
 
+#include "event_loop.hpp"
 #include "procman.hpp"
 #include "procinfo.hpp"
 
@@ -29,12 +26,12 @@ struct DeputyOptions {
   bool verbose;
 };
 
-class ProcmanDeputy : public QObject {
-  Q_OBJECT
-
+class ProcmanDeputy {
   public:
-    ProcmanDeputy(const DeputyOptions& options, QObject* parent = nullptr);
+    ProcmanDeputy(const DeputyOptions& options);
     ~ProcmanDeputy();
+
+    void Run();
 
   private:
     void OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::string& channel,
@@ -52,7 +49,7 @@ class ProcmanDeputy : public QObject {
 
     void OnQuitTimer();
 
-    void OnPosixSignal();
+    void OnPosixSignal(int signum);
 
     void OnProcessOutputAvailable(DeputyCommand* mi);
 
@@ -74,9 +71,11 @@ class ProcmanDeputy : public QObject {
 
     DeputyOptions options_;
 
-    Procman *pm_;
+    Procman* pm_;
 
-    lcm::LCM *lcm_;
+    lcm::LCM* lcm_;
+
+    EventLoop event_loop_;
 
     std::string deputy_id_;
 
@@ -90,12 +89,12 @@ class ProcmanDeputy : public QObject {
     lcm::Subscription* info_sub_;
     lcm::Subscription* orders_sub_;
 
-    QTimer discovery_timer_;
-    QTimer one_second_timer_;
-    QTimer introspection_timer_;
+    TimerPtr discovery_timer_;
+    TimerPtr one_second_timer_;
+    TimerPtr introspection_timer_;
+    TimerPtr quit_timer_;
 
-    QSocketNotifier* posix_signal_notifier_;
-    QSocketNotifier* lcm_notifier_;
+    SocketNotifierPtr lcm_notifier_;
 
     std::map<ProcmanCommandPtr, DeputyCommand*> commands_;
 

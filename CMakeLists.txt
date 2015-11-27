@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 2.8.11)
 
 project(procman)
 
-find_package(Qt5Core)
+set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin)
+set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR}/lib)
 
 # Create a directory for build-generated header files
 set(INCLUDE_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR}/include)

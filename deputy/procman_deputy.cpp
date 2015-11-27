@@ -18,12 +18,7 @@
 #include <map>
 #include <set>
 
-#include <QCoreApplication>
-#include <QTimer>
-
 #include <lcmtypes/procman_lcm/output_t.hpp>
-
-#include "signal_pipe.hpp"
 
 #include "procman_deputy.hpp"
 
@@ -82,7 +77,7 @@ static void dbgt (const char *fmt, ...) {
 struct DeputyCommand {
   ProcmanCommandPtr cmd;
 
-  QSocketNotifier* stdout_notifier;
+  SocketNotifierPtr stdout_notifier;
 
   // Each time the command is started, it's assigned a runid. The main purpose
   // of runid is to enable 
@@ -96,7 +91,7 @@ struct DeputyCommand {
   std::string group;
   bool auto_respawn;
 
-  QTimer respawn_timer;
+  TimerPtr respawn_timer;
 
   int64_t last_start_time;
   int respawn_backoff_ms;
@@ -123,15 +118,13 @@ DeputyOptions DeputyOptions::Defaults() {
   return result;
 }
 
-ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options, QObject* parent) :
-  QObject(parent),
+ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options) :
   options_(options),
   deputy_id_(options.deputy_id),
   discovery_sub_(nullptr),
   info_sub_(nullptr),
   orders_sub_(nullptr),
   discovery_timer_(),
-  posix_signal_notifier_(nullptr),
   lcm_notifier_(nullptr) {
   deputy_start_time_ = timestamp_now();
   deputy_pid_ = getpid();
@@ -149,35 +142,27 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options, QObject* parent) :
   discovery_sub_ = lcm_->subscribe("PM_DISCOVER",
       &ProcmanDeputy::DiscoveryReceived, this);
 
-  // Setup Qt timers
+  // Setup timers
 
   // When the deputy is first created, periodically send out discovery messages
   // to see what other procman deputy processes are active
-  discovery_timer_.setInterval(200);
-  connect(&discovery_timer_, &QTimer::timeout,
-      this, &ProcmanDeputy::OnDiscoveryTimer);
-  discovery_timer_.start();
+  discovery_timer_ = event_loop_.AddTimer(200, EventLoop::kRepeating, true,
+      std::bind(&ProcmanDeputy::OnDiscoveryTimer, this));
   OnDiscoveryTimer();
 
   // TODO
-  one_second_timer_.setInterval(1000);
-  connect(&one_second_timer_, &QTimer::timeout,
-      this, &ProcmanDeputy::OnOneSecondTimer);
+  one_second_timer_ = event_loop_.AddTimer(1000, EventLoop::kRepeating, false,
+      std::bind(&ProcmanDeputy::OnOneSecondTimer, this));
 
   // periodically check memory usage
-  introspection_timer_.setInterval(120000);
-  connect(&introspection_timer_, &QTimer::timeout,
-      this, &ProcmanDeputy::OnIntrospectionTimer);
+  introspection_timer_ = event_loop_.AddTimer(120000, EventLoop::kRepeating, false,
+      std::bind(&ProcmanDeputy::OnIntrospectionTimer, this));
 
-  posix_signal_notifier_ = new QSocketNotifier(signal_pipe_fd(),
-      QSocketNotifier::Read, this);
-  connect(posix_signal_notifier_, &QSocketNotifier::activated,
-      this, &ProcmanDeputy::OnPosixSignal);
+  event_loop_.SetPosixSignals({ SIGINT, SIGHUP, SIGQUIT, SIGTERM, SIGCHLD },
+      std::bind(&ProcmanDeputy::OnPosixSignal, this, std::placeholders::_1));
 
-  lcm_notifier_ = new QSocketNotifier(lcm_->getFileno(),
-      QSocketNotifier::Read, this);
-  connect(lcm_notifier_, &QSocketNotifier::activated,
-      [this]() { lcm_->handle(); });
+  lcm_notifier_ = event_loop_.AddSocket(lcm_->getFileno(),
+      EventLoop::kRead, [this]() { lcm_->handle(); });
 }
 
 ProcmanDeputy::~ProcmanDeputy() {
@@ -193,6 +178,10 @@ ProcmanDeputy::~ProcmanDeputy() {
   }
   delete lcm_;
   delete pm_;
+}
+
+void ProcmanDeputy::Run() {
+  event_loop_.Run();
 }
 
 void ProcmanDeputy::TransmitStr(const std::string& command_id, const char* str) {
@@ -248,7 +237,8 @@ void ProcmanDeputy::OnProcessOutputAvailable(DeputyCommand* mi) {
 
 void ProcmanDeputy::MaybeScheduleRespawn(DeputyCommand *mi) {
   if(mi->auto_respawn && mi->should_be_running) {
-    mi->respawn_timer.start(mi->respawn_backoff_ms);
+    mi->respawn_timer->SetInterval(mi->respawn_backoff_ms);
+    mi->respawn_timer->Start();
   }
 }
 
@@ -261,7 +251,7 @@ int ProcmanDeputy::StartCommand(DeputyCommand* mi, int desired_runid) {
 
   int status;
   mi->should_be_running = true;
-  mi->respawn_timer.stop();
+  mi->respawn_timer->Stop();
 
   // update the respawn backoff counter, to throttle how quickly a
   // process respawns
@@ -286,10 +276,9 @@ int ProcmanDeputy::StartCommand(DeputyCommand* mi, int desired_runid) {
     return -1;
   }
 
-  mi->stdout_notifier = new QSocketNotifier(cmd->StdoutFd(),
-      QSocketNotifier::Read, this);
   fcntl(cmd->StdoutFd(), F_SETFL, O_NONBLOCK);
-  connect(mi->stdout_notifier, &QSocketNotifier::activated,
+  mi->stdout_notifier = event_loop_.AddSocket(cmd->StdoutFd(),
+      EventLoop::kRead,
       std::bind(&ProcmanDeputy::OnProcessOutputAvailable, this, mi));
 
   mi->actual_runid = desired_runid;
@@ -306,10 +295,7 @@ int ProcmanDeputy::StopCommand(DeputyCommand* mi) {
   }
 
   mi->should_be_running = false;
-
-  if (mi->respawn_timer.isActive()) {
-    mi->respawn_timer.stop();
-  }
+  mi->respawn_timer->Stop();
 
   int64_t now = timestamp_now();
   int64_t sigkill_time = mi->first_kill_time + (int64_t)(mi->stop_time_allowed * 1000000);
@@ -364,9 +350,7 @@ void ProcmanDeputy::CheckForDeadChildren() {
     }
 
     if (mi->stdout_notifier) {
-      delete mi->stdout_notifier;
-      mi->stdout_notifier = nullptr;
-
+      mi->stdout_notifier.reset();
       pm_->CloseDeadPipes(cmd);
     }
 
@@ -399,7 +383,7 @@ void ProcmanDeputy::OnQuitTimer() {
   }
 
   dbgt ("stopping deputy main loop\n");
-  QCoreApplication::instance()->quit();
+  event_loop_.Quit();
 }
 
 void ProcmanDeputy::TransmitProcInfo() {
@@ -530,13 +514,7 @@ void ProcmanDeputy::OnIntrospectionTimer() {
       );
 }
 
-void ProcmanDeputy::OnPosixSignal() {
-  int signum;
-  int status = read(signal_pipe_fd(), &signum, sizeof(int));
-  if (status != sizeof(int)) {
-    return;
-  }
-
+void ProcmanDeputy::OnPosixSignal(int signum) {
   if (signum == SIGCHLD) {
     // a child process died.  check to see which one, and cleanup its
     // remains.
@@ -557,10 +535,9 @@ void ProcmanDeputy::OnPosixSignal() {
 
     // set a timer, after which everything will be more forcefully
     // terminated.
-    QTimer* quit_timer = new QTimer(this);
-    quit_timer->setSingleShot(true);
-    quit_timer->start((int)(max_stop_time_allowed * 1000));
-    connect(quit_timer, &QTimer::timeout, this, &ProcmanDeputy::OnQuitTimer);
+    quit_timer_ = event_loop_.AddTimer(max_stop_time_allowed * 1000,
+        EventLoop::kSingleShot, true,
+        std::bind(&ProcmanDeputy::OnQuitTimer, this));
   }
 
   if(exiting_) {
@@ -574,7 +551,7 @@ void ProcmanDeputy::OnPosixSignal() {
     }
     if(all_dead) {
       dbg("all child processes are dead, exiting.\n");
-      QCoreApplication::instance()->quit();
+      event_loop_.Quit();
     }
   }
 }
@@ -661,10 +638,10 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
       mi->stop_time_allowed = cmd_msg->cmd.stop_time_allowed;
       mi->last_start_time = 0;
       mi->respawn_backoff_ms = MIN_RESPAWN_DELAY_MS;
-      mi->stdout_notifier = nullptr;
+      mi->stdout_notifier.reset();
 
-      mi->respawn_timer.setSingleShot(true);
-      QObject::connect(&mi->respawn_timer, &QTimer::timeout,
+      mi->respawn_timer = event_loop_.AddTimer(MIN_RESPAWN_DELAY_MS,
+          EventLoop::kSingleShot, false,
           [this, mi]() { 
           if(mi->auto_respawn && mi->should_be_running && !exiting_) {
             StartCommand(mi, mi->actual_runid);
@@ -831,7 +808,7 @@ void ProcmanDeputy::OnDiscoveryTimer() {
 
     // Discovery period is over. Stop subscribing to deputy info messages, and
     // start subscribing to sheriff orders.
-    discovery_timer_.stop();
+    discovery_timer_->Stop();
 
     lcm_->unsubscribe(info_sub_);
     info_sub_ = NULL;
@@ -840,7 +817,7 @@ void ProcmanDeputy::OnDiscoveryTimer() {
         &ProcmanDeputy::OrdersReceived, this);
 
     // Start the timer to periodically transmit status information
-    one_second_timer_.start();
+    one_second_timer_->Start();
     OnOneSecondTimer();
   }
 }
@@ -881,8 +858,6 @@ int main (int argc, char **argv) {
     { "name", required_argument, 0, 'n' },
     { 0, 0, 0, 0 }
   };
-
-  QCoreApplication app(argc, argv);
 
   DeputyOptions dep_options = DeputyOptions::Defaults();
   char *logfilename = NULL;
@@ -944,20 +919,9 @@ int main (int argc, char **argv) {
     dep_options.deputy_id = deputy_id_override;
   }
 
-  // convert Unix signals into file descriptor writes
-  signal_pipe_init();
-  signal_pipe_add_signal(SIGINT);
-  signal_pipe_add_signal(SIGHUP);
-  signal_pipe_add_signal(SIGQUIT);
-  signal_pipe_add_signal(SIGTERM);
-  signal_pipe_add_signal(SIGCHLD);
-
   ProcmanDeputy pmd(dep_options);
 
-  int app_status = app.exec();
+  pmd.Run();
 
-  // cleanup
-  signal_pipe_cleanup();
-
-  return app_status;
+  return 0;
 }

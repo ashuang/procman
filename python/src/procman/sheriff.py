@@ -20,8 +20,8 @@ from procman_lcm.discovery_t import discovery_t
 import procman.sheriff_config as sheriff_config
 
 def _dbg(text):
-#    return
-    sys.stderr.write("%s\n" % text)
+    return
+#    sys.stderr.write("%s\n" % text)
 
 def _warn(text):
     sys.stderr.write("[WARNING] %s\n" % text)

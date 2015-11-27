@@ -80,10 +80,6 @@ int Procman::StartCommand(ProcmanCommandPtr cmd) {
         // gets closed when the child exits... that's okay
         int stderr_backup = dup(STDERR_FILENO);
 
-        printf("execv: \n");
-        for (int i = 0; cmd->argv_[i]; ++i) {
-          printf("  argv[%d]: %s\n", i, cmd->argv_[i]);
-        }
         int stdin_fd;
         int pid = forkpty(&stdin_fd, NULL, NULL, NULL);
         cmd->SetStdinFd(stdin_fd);
@@ -243,12 +239,10 @@ void ProcmanCommand::PrepareArgsAndEnvironment(const StringStringMap& variables)
     if (i == num_env_vars && strchr(args[i].c_str(), '=')) {
       const std::vector<std::string> parts = Split(args[i], "=", 2);
       environment_[parts[0]] = parts[1];
-      printf("env: [%s]=[%s]\n", parts[0].c_str(), parts[1].c_str());
       ++num_env_vars;
     } else {
       // substitute variables
       const std::string arg = ExpandVariables(args[i], variables);
-      printf("argv[%d]: %s\n", i - num_env_vars, arg.c_str());
       argv_[i - num_env_vars] = strdup(arg.c_str());
     }
   }
