@@ -142,7 +142,7 @@ function(lcmtypes_build_c)
       file(RELATIVE_PATH _h_relname ${CMAKE_CURRENT_BINARY_DIR}/lcmtypes/c/lcmtypes ${_lcmtype_h_file})
       set(_h_file_output ${lcmtypes_include_build_path}/lcmtypes/${_h_relname})
       add_custom_command(OUTPUT ${_h_file_output}
-                         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_lcmtype_h_file} ${_h_file_output}
+                         COMMAND ${CMAKE_COMMAND} -E copy ${_lcmtype_h_file} ${_h_file_output}
                          DEPENDS ${_lcmtype_h_file})
       list(APPEND _output_h_files ${_h_file_output})
     endforeach()

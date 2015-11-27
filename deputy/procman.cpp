@@ -130,7 +130,7 @@ int Procman::KillCommmand(ProcmanCommandPtr cmd, int signum) {
     return -EINVAL;
   }
   // get a list of the process's descendants
-  std::vector<int> descendants = procinfo_get_descendants(cmd->Pid());
+  std::vector<int> descendants = GetDescendants(cmd->Pid());
 
   dbgt ("[%s] stop (signal %d)\n", cmd->Id().c_str(), signum);
   if (0 != kill (cmd->Pid(), signum)) {
@@ -195,7 +195,7 @@ ProcmanCommandPtr Procman::CheckForDeadChildren() {
 
     // check for and kill orphaned children.
     for (int child_pid : cmd->descendants_to_kill_) {
-      if(procinfo_is_orphaned_child_of(child_pid, pid)) {
+      if(IsOrphanedChildOf(child_pid, pid)) {
         dbgt("sending SIGKILL to orphan process %d\n", child_pid);
         kill(child_pid, SIGKILL);
       }

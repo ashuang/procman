@@ -17,9 +17,16 @@ struct ProcessInfo {
   uint32_t system;
 
   // memory usage
+
+  // VSIZE bytes
   int64_t  vsize;
+
+  // RSS bytes
   int64_t  rss;
+
+  // SHR bytes
   int64_t  shared;
+
   int64_t  text;
   int64_t  data;
 };
@@ -36,13 +43,13 @@ struct SystemInfo {
   int64_t swapfree;
 };
 
-int procinfo_read_proc_cpu_mem(int pid, ProcessInfo *s);
+bool ReadProcessInfo(int pid, ProcessInfo *s);
 
-int procinfo_read_sys_cpu_mem(SystemInfo *s);
+bool ReadSystemInfo(SystemInfo *s);
 
-std::vector<int> procinfo_get_descendants(int pid);
+std::vector<int> GetDescendants(int pid);
 
-bool procinfo_is_orphaned_child_of(int orphan, int parent);
+bool IsOrphanedChildOf(int orphan, int parent);
 
 }  // namespace procman
 

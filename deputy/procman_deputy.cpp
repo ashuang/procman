@@ -435,7 +435,7 @@ void ProcmanDeputy::TransmitProcessInfo() {
 }
 
 void ProcmanDeputy::UpdateCpuTimes() {
-  int status = procinfo_read_sys_cpu_mem (&cpu_time_[1]);
+  int status = ReadSystemInfo(&cpu_time_[1]);
   if(0 != status) {
     perror("update_cpu_times - procinfo_read_sys_cpu_mem");
   }
@@ -461,7 +461,7 @@ void ProcmanDeputy::UpdateCpuTimes() {
     DeputyCommand* mi = item.second;
 
     if (cmd->Pid()) {
-      status = procinfo_read_proc_cpu_mem (cmd->Pid(), &mi->cpu_time[1]);
+      status = ReadProcessInfo(cmd->Pid(), &mi->cpu_time[1]);
       if (0 != status) {
         mi->cpu_usage = 0;
         mi->cpu_time[1].vsize = 0;
@@ -502,7 +502,7 @@ void ProcmanDeputy::OnOneSecondTimer() {
 void ProcmanDeputy::OnIntrospectionTimer() {
   int mypid = getpid();
   ProcessInfo pinfo;
-  int status = procinfo_read_proc_cpu_mem (mypid, &pinfo);
+  int status = ReadProcessInfo(mypid, &pinfo);
   if(0 != status)  {
     perror("introspection_timeout - procinfo_read_proc_cpu_mem");
   }

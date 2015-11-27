@@ -4,22 +4,22 @@
 
 namespace procman {
 
-std::vector<int> procinfo_get_descendants(int pid) {
+std::vector<int> GetDescendants(int pid) {
   return std::vector<int>();
 }
 
-int procinfo_is_orphaned_child_of(int orphan, int parent) {
-  return 0;
+bool IsOrphanedChildOf(int orphan, int parent) {
+  return false;
 }
 
-int procinfo_read_proc_cpu_mem (int pid, ProcessInfo *s) {
-  memset(s, 0, sizeof(ProcessInfo));
-  return 0;
+bool ReadProcessInfo(int pid, ProcessInfo *procinfo) {
+  memset(procinfo, 0, sizeof(ProcessInfo));
+  return false;
 }
 
-int procinfo_read_sys_cpu_mem (SystemInfo *s) {
-  memset(s, 0, sizeof(SystemInfo));
-  return 0;
+bool ReadSystemInfo(SystemInfo *sysinfo) {
+  memset(sysinfo, 0, sizeof(SystemInfo));
+  return false;
 }
 
 }  // namespace procman
