@@ -7,6 +7,7 @@
 #include <time.h>
 #include <errno.h>
 #include <sys/time.h>
+#include <stdarg.h>
 
 #ifdef __APPLE__
 #include <util.h>
@@ -17,6 +18,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+
+#include <algorithm>
 
 #include "exec_string_utils.hpp"
 #include "procman.hpp"

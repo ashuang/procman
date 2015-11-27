@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <signal.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -279,7 +280,7 @@ void EventLoop::IterateOnce() {
       for (int index = 0; index < num_sockets; ++index) {
         struct pollfd* pfd = &pfds[index];
         if (pfd->revents & pfd->events) {
-          dbg("marking socket notifier %p (%d) for callback\n",
+          dbg("marking socket notifier %p (%d) for callback",
               sockets_[index], pfd->fd);
           sockets_ready_.push_back(sockets_[index]);
         }
@@ -291,9 +292,7 @@ void EventLoop::IterateOnce() {
       if (!notifier) {
         continue;
       }
-      dbg("processing socket notifier %p (%d)\n", notifier, notifier->fd_);
       notifier->callback_();
-      dbg("done procesing socket notifier %p (%d)\n", notifier, notifier->fd_);
     }
     sockets_ready_.clear();
 

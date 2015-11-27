@@ -12,13 +12,13 @@ int procinfo_is_orphaned_child_of(int orphan, int parent) {
   return 0;
 }
 
-int procinfo_read_proc_cpu_mem (int pid, proc_cpu_mem_t *s) {
-  memset(s, 0, sizeof(proc_cpu_mem_t));
+int procinfo_read_proc_cpu_mem (int pid, ProcessInfo *s) {
+  memset(s, 0, sizeof(ProcessInfo));
   return 0;
 }
 
-int procinfo_read_sys_cpu_mem (sys_cpu_mem_t *s) {
-  memset(s, 0, sizeof(sys_cpu_mem_t));
+int procinfo_read_sys_cpu_mem (SystemInfo *s) {
+  memset(s, 0, sizeof(SystemInfo));
   return 0;
 }
 

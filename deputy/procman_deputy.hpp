@@ -57,7 +57,7 @@ class ProcmanDeputy {
 
     void CheckForDeadChildren();
 
-    void TransmitProcInfo();
+    void TransmitProcessInfo();
 
     void MaybeScheduleRespawn(DeputyCommand *mi);
 
@@ -79,7 +79,7 @@ class ProcmanDeputy {
 
     std::string deputy_id_;
 
-    sys_cpu_mem_t cpu_time_[2];
+    SystemInfo cpu_time_[2];
     float cpu_load_;
 
     int64_t deputy_start_time_;

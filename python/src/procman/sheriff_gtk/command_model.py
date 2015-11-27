@@ -10,7 +10,7 @@ COL_CMDS_TV_COMMAND_ID, \
 COL_CMDS_TV_DEPUTY, \
 COL_CMDS_TV_STATUS_ACTUAL, \
 COL_CMDS_TV_CPU_USAGE, \
-COL_CMDS_TV_MEM_VSIZE, \
+COL_CMDS_TV_MEM_RSS, \
 COL_CMDS_TV_AUTO_RESPAWN, \
 NUM_CMDS_ROWS = range(10)
 
@@ -60,7 +60,7 @@ class SheriffCommandModel(gtk.TreeStore):
                       "",                       # COL_CMDS_TV_DEPUTY
                       "",                       # COL_CMDS_TV_STATUS_ACTUAL
                       "",                       # COL_CMDS_TV_CPU_USAGE
-                      0,                        # COL_CMDS_TV_MEM_VSIZE
+                      0,                        # COL_CMDS_TV_MEM_RSS
                       False,                    # COL_CMDS_TV_AUTO_RESPAWN
                       )
             ts_iter = self.append(parent, new_row)
@@ -88,7 +88,7 @@ class SheriffCommandModel(gtk.TreeStore):
         model_iter = self.get_iter(path)
         cmd = self.iter_to_command(model_iter)
         cpu_str = "%.2f" % (cmd.cpu_usage * 100)
-        mem_usage = int(cmd.mem_vsize_bytes / 1024)
+        mem_usage = int(cmd.mem_rss_bytes / 1024)
 
         self.set(model_iter,
                 COL_CMDS_TV_EXEC, cmd.exec_str,
@@ -96,7 +96,7 @@ class SheriffCommandModel(gtk.TreeStore):
                 COL_CMDS_TV_STATUS_ACTUAL, cmd.status(),
                 COL_CMDS_TV_DEPUTY, cmd_deps[cmd].deputy_id,
                 COL_CMDS_TV_CPU_USAGE, cpu_str,
-                COL_CMDS_TV_MEM_VSIZE, mem_usage,
+                COL_CMDS_TV_MEM_RSS, mem_usage,
                 COL_CMDS_TV_AUTO_RESPAWN, cmd.auto_respawn)
 
         # get a row reference to the model since
@@ -151,7 +151,7 @@ class SheriffCommandModel(gtk.TreeStore):
 
         # aggregate CPU and memory usage
         cpu_total = sum ([cmd.cpu_usage for cmd in children])
-        mem_total = sum ([cmd.mem_vsize_bytes / 1024 \
+        mem_total = sum ([cmd.mem_rss_bytes / 1024 \
                 for cmd in children])
         cpu_str = "%.2f" % (cpu_total * 100)
 
@@ -166,7 +166,7 @@ class SheriffCommandModel(gtk.TreeStore):
                 COL_CMDS_TV_EXEC, exec_val,
                 COL_CMDS_TV_DEPUTY, dep_str,
                 COL_CMDS_TV_CPU_USAGE, cpu_str,
-                COL_CMDS_TV_MEM_VSIZE, mem_total)
+                COL_CMDS_TV_MEM_RSS, mem_total)
 
     def _dispatch_row_changes(self, model, path, model_iter, user_data):
         cmds_to_add, cmd_rows_to_remove, cmds_rows_to_update, group_rows_to_update = user_data
@@ -245,7 +245,7 @@ class SheriffCommandModel(gtk.TreeStore):
                 deputy.deputy_id,  # COL_CMDS_TV_DEPUTY
                 cmd.status(),      # COL_CMDS_TV_STATUS_ACTUAL
                 "0",               # COL_CMDS_TV_CPU_USAGE
-                0,                 # COL_CMDS_TV_MEM_VSIZE
+                0,                 # COL_CMDS_TV_MEM_RSS
                 cmd.auto_respawn,  # COL_CMDS_TV_AUTO_RESPAWN
                 )
             if parent:

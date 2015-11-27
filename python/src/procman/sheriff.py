@@ -148,6 +148,12 @@ class SheriffDeputyCommand(object):
             return self._mem_vsize_bytes
 
     @property
+    def mem_rss_bytes(self):
+        """Physical memory used by the command."""
+        with self._lock:
+            return self._mem_rss_bytes
+
+    @property
     def exec_str(self):
         """The executable string for the command."""
         with self._lock:

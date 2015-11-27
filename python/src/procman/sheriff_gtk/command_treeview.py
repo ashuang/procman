@@ -23,7 +23,7 @@ class SheriffCommandTreeView(gtk.TreeView):
             ("Deputy",   plain_tr,  cm.COL_CMDS_TV_DEPUTY, None),
             ("Status",   status_tr, cm.COL_CMDS_TV_STATUS_ACTUAL, self._status_cell_data_func),
             ("CPU %",    plain_tr,  cm.COL_CMDS_TV_CPU_USAGE, None),
-            ("Mem (kB)", plain_tr,  cm.COL_CMDS_TV_MEM_VSIZE, None),
+            ("Mem (kB)", plain_tr,  cm.COL_CMDS_TV_MEM_RSS, None),
             ]
 
         self.columns = []

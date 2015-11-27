@@ -85,7 +85,7 @@ struct DeputyCommand {
 
   bool should_be_running;
 
-  proc_cpu_mem_t cpu_time[2];
+  ProcessInfo cpu_time[2];
   float cpu_usage;
 
   std::string group;
@@ -120,14 +120,22 @@ DeputyOptions DeputyOptions::Defaults() {
 
 ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options) :
   options_(options),
+  lcm_(nullptr),
+  event_loop_(),
   deputy_id_(options.deputy_id),
+  cpu_load_(-1),
+  deputy_start_time_(timestamp_now()),
+  deputy_pid_(getpid()),
   discovery_sub_(nullptr),
   info_sub_(nullptr),
   orders_sub_(nullptr),
   discovery_timer_(),
-  lcm_notifier_(nullptr) {
-  deputy_start_time_ = timestamp_now();
-  deputy_pid_ = getpid();
+  one_second_timer_(),
+  introspection_timer_(),
+  quit_timer_(),
+  lcm_notifier_(nullptr),
+  commands_(),
+  exiting_(false) {
   pm_ = new Procman(ProcmanOptions::Default());
 
   // Initialize LCM
@@ -366,7 +374,7 @@ void ProcmanDeputy::CheckForDeadChildren() {
     }
 
     cmd = pm_->CheckForDeadChildren();
-    TransmitProcInfo();
+    TransmitProcessInfo();
   }
 }
 
@@ -386,7 +394,7 @@ void ProcmanDeputy::OnQuitTimer() {
   event_loop_.Quit();
 }
 
-void ProcmanDeputy::TransmitProcInfo() {
+void ProcmanDeputy::TransmitProcessInfo() {
   // build a deputy info message
   deputy_info_t msg;
   msg.utime = timestamp_now();
@@ -432,8 +440,8 @@ void ProcmanDeputy::UpdateCpuTimes() {
     perror("update_cpu_times - procinfo_read_sys_cpu_mem");
   }
 
-  sys_cpu_mem_t *a = &cpu_time_[1];
-  sys_cpu_mem_t *b = &cpu_time_[0];
+  SystemInfo *a = &cpu_time_[1];
+  SystemInfo *b = &cpu_time_[0];
 
   uint64_t elapsed_jiffies = a->user - b->user +
     a->user_low - b->user_low +
@@ -461,8 +469,8 @@ void ProcmanDeputy::UpdateCpuTimes() {
         perror("update_cpu_times - procinfo_read_proc_cpu_mem");
         // TODO handle this error
       } else {
-        proc_cpu_mem_t *pa = &mi->cpu_time[1];
-        proc_cpu_mem_t *pb = &mi->cpu_time[0];
+        ProcessInfo *pa = &mi->cpu_time[1];
+        ProcessInfo *pb = &mi->cpu_time[0];
 
         uint64_t used_jiffies = pa->user - pb->user +
           pa->system - pb->system;
@@ -480,20 +488,20 @@ void ProcmanDeputy::UpdateCpuTimes() {
       mi->cpu_time[1].rss = 0;
     }
 
-    memcpy (&mi->cpu_time[0], &mi->cpu_time[1], sizeof (proc_cpu_mem_t));
+    memcpy (&mi->cpu_time[0], &mi->cpu_time[1], sizeof (ProcessInfo));
   }
 
-  memcpy (&cpu_time_[0], &cpu_time_[1], sizeof (sys_cpu_mem_t));
+  memcpy (&cpu_time_[0], &cpu_time_[1], sizeof (SystemInfo));
 }
 
 void ProcmanDeputy::OnOneSecondTimer() {
   UpdateCpuTimes();
-  TransmitProcInfo();
+  TransmitProcessInfo();
 }
 
 void ProcmanDeputy::OnIntrospectionTimer() {
   int mypid = getpid();
-  proc_cpu_mem_t pinfo;
+  ProcessInfo pinfo;
   int status = procinfo_read_proc_cpu_mem (mypid, &pinfo);
   if(0 != status)  {
     perror("introspection_timeout - procinfo_read_proc_cpu_mem");
@@ -566,7 +574,8 @@ static const cmd_desired_t* OrdersFindCmd (const orders_t* orders,
   return nullptr;
 }
 
-void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::string& channel,
+void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
+    const std::string& channel,
     const orders_t* orders) {
   // ignore orders if we're exiting
   if (exiting_) {
@@ -756,7 +765,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf, const std::st
   }
 
   if (action_taken) {
-    TransmitProcInfo();
+    TransmitProcessInfo();
   }
 }
 
@@ -774,7 +783,7 @@ void ProcmanDeputy::DiscoveryReceived(const lcm::ReceiveBuffer* rbuf,
   } else {
     // received a discovery message while not in discovery mode.  Respond by
     // transmitting deputy info.
-    TransmitProcInfo();
+    TransmitProcessInfo();
   }
 }
 

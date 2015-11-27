@@ -1,5 +1,7 @@
 #include "exec_string_utils.hpp"
 
+#include <string.h>
+
 #include <sstream>
 
 namespace procman {

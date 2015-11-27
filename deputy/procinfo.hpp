@@ -9,7 +9,7 @@
 
 namespace procman {
 
-typedef struct {
+struct ProcessInfo {
   int pid;
 
   // cpu usage time
@@ -22,9 +22,9 @@ typedef struct {
   int64_t  shared;
   int64_t  text;
   int64_t  data;
-} proc_cpu_mem_t;
+};
 
-typedef struct {
+struct SystemInfo {
   uint32_t user;
   uint32_t user_low;
   uint32_t system;
@@ -34,16 +34,15 @@ typedef struct {
   int64_t memfree;
   int64_t swaptotal;
   int64_t swapfree;
+};
 
-} sys_cpu_mem_t;
+int procinfo_read_proc_cpu_mem(int pid, ProcessInfo *s);
 
-int procinfo_read_proc_cpu_mem (int pid, proc_cpu_mem_t *s);
-
-int procinfo_read_sys_cpu_mem (sys_cpu_mem_t *s);
+int procinfo_read_sys_cpu_mem(SystemInfo *s);
 
 std::vector<int> procinfo_get_descendants(int pid);
 
-int procinfo_is_orphaned_child_of(int orphan, int parent);
+bool procinfo_is_orphaned_child_of(int orphan, int parent);
 
 }  // namespace procman
 
