@@ -252,7 +252,7 @@ class SheriffCommandConsole(gtk.ScrolledWindow, SheriffListener):
         adj.set_data ("scrolled-to-end", adj.value == adj.upper-adj.page_size)
 
     def _handle_command_output(self, command_id, text):
-        cmd = self.sheriff.get_command_by_id(command_id)
+        cmd = self.sheriff.get_command(command_id)
         if not cmd:
             return
 

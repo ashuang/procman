@@ -358,7 +358,7 @@ class SheriffCommandTreeView(gtk.TreeView):
                     self.sheriff.set_command_exec(cmd, new_exec_str)
 
                 if newauto_respawn != cmd.auto_respawn and newauto_respawn >=0:
-                    self.sheriff.set_auto_respawn(cmd, newauto_respawn)
+                    self.sheriff.set_command_auto_respawn(cmd, newauto_respawn)
 
                 if newgroup != cmd.group and newgroup != unchanged_val:
                     self.sheriff.set_command_group(cmd, newgroup)

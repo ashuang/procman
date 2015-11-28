@@ -215,7 +215,7 @@ def do_add_command_dialog(sheriff, cmds_ts, window):
     dlg = AddModifyCommandDialog (window, deputy_ids,
             cmds_ts.get_known_group_names(), initial_cmd_id = initial_cmd_id)
 
-    while dlg.run () == gtk.RESPONSE_ACCEPT:
+    while dlg.run() == gtk.RESPONSE_ACCEPT:
         spec = SheriffCommandSpec(dlg.get_command_id(),
                 dlg.get_deputy(),
                 dlg.get_command(),

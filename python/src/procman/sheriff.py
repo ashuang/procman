@@ -569,11 +569,12 @@ class Sheriff(object):
         """
         self._lcm = lcm_obj
         self._lcm_thread = None
+        self._lcm_thread_obj = None
         if self._lcm is None:
             self._lcm = lcm.LCM()
             self._lcm_thread_obj = threading.Thread(target = self._lcm_thread)
-        self._lcm.subscribe("PM_INFO", self.on_pmd_info)
-        self._lcm.subscribe("PM_ORDERS", self.on_pmd_orders)
+        self._lcm.subscribe("PM_INFO", self._on_pmd_info)
+        self._lcm.subscribe("PM_ORDERS", self._on_pmd_orders)
         self._deputies = {}
         self._is_observer = False
         self._id = platform.node() + ":" + str(os.getpid()) + \
@@ -666,10 +667,13 @@ class Sheriff(object):
             self._listeners.append(sheriff_listener)
 
     def remove_listener(self, sheriff_listener):
+        """Removes a listener that was added with add_listener().
+        """
         with self._lock:
             self._listeners.remove(sheriff_listener)
 
-    def on_pmd_info(self, _, data):
+    def _on_pmd_info(self, _, data):
+        # LCM callback. self._lock is not acquired
         try:
             info_msg = deputy_info_t.decode(data)
         except ValueError:
@@ -696,7 +700,8 @@ class Sheriff(object):
             self.__deputy_info_received(deputy)
             self._maybe_emit_status_change_signals(deputy, status_changes)
 
-    def on_pmd_orders(self, _, data):
+    def _on_pmd_orders(self, _, data):
+        # LCM callback. self._lock is not acquired
         try:
             orders_msg = orders_t.decode(data)
         except ValueError:
@@ -712,33 +717,21 @@ class Sheriff(object):
                 self.__sheriff_conflict_detected(orders_msg.sheriff_id)
 
     def shutdown(self):
+        """Terminates the sheriff and stops the internal worker thread.
+        """
         # signal worker thread
         with self._lock:
             self._exiting = True
             self._condvar.notify()
 
-        # wait for worker thread to exit
+        # wait for worker thread to exit.
         self._worker_thread_obj.join()
 
-    def get_id(self):
-        """Retrieve the sheriff id.
-        The sheriff id is designed to be globally unique, and used to detect
-        conflicting sheriffs.
-        """
-        with self._lock:
-            return self._id
+        # wait for LCM thread to exit.
+        if self._lcm_thread_obj:
+            self._lcm_thread_obj.join()
 
     def _send_orders(self):
-        # self._lock should already be acquired
-        if self._is_observer:
-            raise ValueError("Can't send orders in Observer mode")
-        for deputy in self._deputies.values():
-            # only send orders to a deputy if we've heard from it.
-            if deputy._last_update_utime > 0:
-                msg = deputy._make_orders_message(self._id)
-                self._lcm.publish("PM_ORDERS", msg.encode())
-
-    def send_orders(self):
         """Transmit orders to all deputies.  Call this method for the sheriff
         to send updated orders to its deputies.  This method is automatically
         called when you call other sheriff methods such as add_command(),
@@ -749,8 +742,14 @@ class Sheriff(object):
         @note Orders will only be sent to a deputy if the sheriff has received at
         least one update from the deputy.
         """
-        with self._lock:
-            self._send_orders()
+        # self._lock should already be acquired
+        if self._is_observer:
+            raise ValueError("Can't send orders in Observer mode")
+        for deputy in self._deputies.values():
+            # only send orders to a deputy if we've heard from it.
+            if deputy._last_update_utime > 0:
+                msg = deputy._make_orders_message(self._id)
+                self._lcm.publish("PM_ORDERS", msg.encode())
 
     def _add_command(self, spec):
         # self._lock should already be acquired
@@ -761,7 +760,7 @@ class Sheriff(object):
             raise ValueError("Invalid command")
         if not spec.command_id:
             raise ValueError("Invalid command id")
-        if self._get_command_by_id(spec.command_id):
+        if self._get_command(spec.command_id):
             raise ValueError("Duplicate command id %s" % spec.command_id)
         if not spec.deputy_id:
             raise ValueError("Invalid deputy")
@@ -886,7 +885,7 @@ class Sheriff(object):
                 cmd._group = group_name
                 self.__command_group_changed(cmd)
 
-    def set_auto_respawn(self, cmd, newauto_respawn):
+    def set_command_auto_respawn(self, cmd, newauto_respawn):
         """Set if a deputy should auto-respawn the command when the command
         terminates.
 
@@ -959,16 +958,6 @@ class Sheriff(object):
         with self._lock:
             return self._deputies.values()
 
-    def find_deputy(self, deputy_id):
-        """Retrieve the SheriffDeputy object by deputy id.
-
-        @param deputy_id the id of the desired deputy.
-
-        @return a SheriffDeputy object.
-        """
-        with self._lock:
-            return self._deputies[deputy_id]
-
     def purge_useless_deputies(self):
         """Clean up the Sheriff internal state.
 
@@ -1014,13 +1003,13 @@ class Sheriff(object):
         with self._lock:
             return self._get_all_commands()
 
-    def _get_command_by_id(self, cmd_id):
+    def _get_command(self, cmd_id):
         for deputy in self._deputies.values():
             if cmd_id in deputy._commands:
                 return deputy._commands[cmd_id]
         return None
 
-    def get_command_by_id(self, cmd_id):
+    def get_command(self, cmd_id):
         """Retrieve the command with the specified id.
 
         @param cmd_id the desired command id.
@@ -1028,7 +1017,7 @@ class Sheriff(object):
         @return a SheriffDeputyCommand object matching the query, or None.
         """
         with self._lock:
-            return self._get_command_by_id(cmd_id)
+            return self._get_command(cmd_id)
 
     def _get_commands_by_group(self, group_name):
         result = []
@@ -1113,7 +1102,7 @@ class Sheriff(object):
 #                  newcmd.command_id, cmd.attributes["deputy"]))
 
     def save_config(self, config_node):
-        """Write the current sheriff configuration to the specified file
+        """Write the current sheriff configuration to the specified config
         object.  The current sheriff configuration consists of all commands
         managed by all deputies along with their settings.  This information is
         written out to the specified file object, which can then be loaded into
