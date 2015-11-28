@@ -18,8 +18,6 @@
 #include <map>
 #include <set>
 
-#include <lcmtypes/procman_lcm/output_t.hpp>
-
 #include "procman_deputy.hpp"
 
 using procman_lcm::cmd_desired_t;
@@ -135,7 +133,10 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options) :
   quit_timer_(),
   lcm_notifier_(nullptr),
   commands_(),
-  exiting_(false) {
+  exiting_(false),
+  last_output_transmit_utime_(0),
+  output_buf_size_(0),
+  output_msg_() {
   pm_ = new Procman(ProcmanOptions::Default());
 
   // Initialize LCM
@@ -166,11 +167,17 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options) :
   introspection_timer_ = event_loop_.AddTimer(120000, EventLoop::kRepeating, false,
       std::bind(&ProcmanDeputy::OnIntrospectionTimer, this));
 
+  check_output_msg_timer_ = event_loop_.AddTimer(10, EventLoop::kRepeating, true,
+      std::bind(&ProcmanDeputy::MaybePublishOutputMessage, this));
+
   event_loop_.SetPosixSignals({ SIGINT, SIGHUP, SIGQUIT, SIGTERM, SIGCHLD },
       std::bind(&ProcmanDeputy::OnPosixSignal, this, std::placeholders::_1));
 
   lcm_notifier_ = event_loop_.AddSocket(lcm_->getFileno(),
       EventLoop::kRead, [this]() { lcm_->handle(); });
+
+  output_msg_.deputy_id = deputy_id_;
+  output_msg_.num_commands = 0;
 }
 
 ProcmanDeputy::~ProcmanDeputy() {
@@ -193,33 +200,55 @@ void ProcmanDeputy::Run() {
 }
 
 void ProcmanDeputy::TransmitStr(const std::string& command_id, const char* str) {
-  output_t msg;
-  msg.deputy_id = deputy_id_;
-  msg.command_id = command_id;
-  msg.text = str;
-  msg.utime = timestamp_now ();
-  lcm_->publish("PM_OUTPUT", &msg);
+  bool found = false;
+  for (int i = 0; i < output_msg_.num_commands && !found; ++i) {
+    if (command_id != output_msg_.command_ids[i]) {
+      continue;
+    }
+    output_msg_.text[i].append(str);
+    output_buf_size_ += strlen(str);
+    found = true;
+  }
+  if (!found) {
+    output_msg_.num_commands++;
+    output_msg_.command_ids.push_back(command_id);
+    output_msg_.text.push_back(str);
+    output_buf_size_ += strlen(str);
+  }
+
+  MaybePublishOutputMessage();
 }
 
 void ProcmanDeputy::PrintfAndTransmit(const std::string& command_id, const char *fmt, ...) {
-  int len;
   char buf[256];
   va_list ap;
-  va_start (ap, fmt);
+  va_start(ap, fmt);
 
-  len = vsnprintf (buf, sizeof (buf), fmt, ap);
-  if (options_.verbose)
-    fputs (buf, stderr);
-
+  const int len = vsnprintf(buf, sizeof(buf), fmt, ap);
+  if(options_.verbose) {
+    fputs(buf, stderr);
+  }
   if (len) {
-    output_t msg;
-    msg.deputy_id = deputy_id_;
-    msg.command_id = command_id;
-    msg.text = buf;
-    msg.utime = timestamp_now ();
-    lcm_->publish("PM_OUTPUT", &msg);
-  } else {
-    dbgt ("uh oh.  printf_and_transmit printed zero bytes\n");
+    TransmitStr(command_id, buf);
+  }
+}
+
+void ProcmanDeputy::MaybePublishOutputMessage() {
+  if (output_buf_size_ == 0) {
+    return;
+  }
+
+  const int64_t ms_since_last_transmit =
+    abs(static_cast<int>(timestamp_now() - last_output_transmit_utime_)) / 1000;
+
+  if (output_buf_size_ > 4096 || (ms_since_last_transmit >= 10)) {
+    output_msg_.utime = timestamp_now();
+    lcm_->publish("PM_OUTPUT", &output_msg_);
+    output_msg_.num_commands = 0;
+    output_msg_.command_ids.clear();
+    output_msg_.text.clear();
+    output_buf_size_ = 0;
+    last_output_transmit_utime_ = output_msg_.utime;
   }
 }
 

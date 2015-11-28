@@ -9,6 +9,7 @@
 #include <lcmtypes/procman_lcm/orders_t.hpp>
 #include <lcmtypes/procman_lcm/discovery_t.hpp>
 #include <lcmtypes/procman_lcm/deputy_info_t.hpp>
+#include <lcmtypes/procman_lcm/output_t.hpp>
 
 #include "event_loop.hpp"
 #include "procman.hpp"
@@ -69,6 +70,8 @@ class ProcmanDeputy {
 
     void PrintfAndTransmit(const std::string& command_id, const char *fmt, ...);
 
+    void MaybePublishOutputMessage();
+
     DeputyOptions options_;
 
     Procman* pm_;
@@ -93,12 +96,17 @@ class ProcmanDeputy {
     TimerPtr one_second_timer_;
     TimerPtr introspection_timer_;
     TimerPtr quit_timer_;
+    TimerPtr check_output_msg_timer_;
 
     SocketNotifierPtr lcm_notifier_;
 
     std::map<ProcmanCommandPtr, DeputyCommand*> commands_;
 
     bool exiting_;
+
+    int64_t last_output_transmit_utime_;
+    int output_buf_size_;
+    procman_lcm::output_t output_msg_;
 };
 
 }  // namespace procman

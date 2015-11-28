@@ -251,32 +251,37 @@ class SheriffCommandConsole(gtk.ScrolledWindow, SheriffListener):
     def on_adj_value_changed (self, adj):
         adj.set_data ("scrolled-to-end", adj.value == adj.upper-adj.page_size)
 
-    def on_procman_output (self, channel, data):
-        msg = output_t.decode (data)
-        if msg.command_id:
-            cmd = self.sheriff.get_command_by_id(msg.command_id)
-            if not cmd:
-                return
+    def _handle_command_output(self, command_id, text):
+        cmd = self.sheriff.get_command_by_id(command_id)
+        if not cmd:
+            return
 
-            extradata = self._cmd_extradata.get(cmd, None)
-            if not extradata:
-                return
+        extradata = self._cmd_extradata.get(cmd, None)
+        if not extradata:
+            return
 
-            # rate limit
-            msg_count = sum (extradata.printf_keep_count)
-            if msg_count >= self.max_chars_per_2500_ms:
-                extradata.printf_drop_count += len (msg.text)
-                return
+        # rate limit
+        msg_count = sum(extradata.printf_keep_count)
+        if msg_count >= self.max_chars_per_2500_ms:
+            extradata.printf_drop_count += len(text)
+            return
 
-            tokeep = min (self.max_chars_per_2500_ms - msg_count, len (msg.text))
-            extradata.printf_keep_count[-1] += tokeep
+        tokeep = min(self.max_chars_per_2500_ms - msg_count, len(text))
+        extradata.printf_keep_count[-1] += tokeep
 
-            if len (msg.text) > tokeep:
-                toadd = msg.text[:tokeep]
-            else:
-                toadd = msg.text
+        if len(text) > tokeep:
+            toadd = text[:tokeep]
+        else:
+            toadd = text
 
-            self._add_text_to_buffer (extradata.tb, toadd)
+        self._add_text_to_buffer(extradata.tb, toadd)
+
+    def on_procman_output(self, channel, data):
+        msg = output_t.decode(data)
+        for i in range(msg.num_commands):
+            command_id = msg.command_ids[i]
+            text = msg.text[i]
+            self._handle_command_output(command_id, text)
 
     def show_command_buffer(self, cmd):
         extradata = self._cmd_extradata.get(cmd, None)
