@@ -6,7 +6,7 @@ import procman.sheriff as sheriff
 import procman.sheriff_gtk.command_model as cm
 import procman.sheriff_gtk.sheriff_dialogs as sd
 
-class SheriffDeputyModel(gtk.ListStore):
+class DeputyModel(gtk.ListStore):
     COL_OBJ, \
     COL_DEPUTY_ID, \
     COL_LAST_UPDATE, \
@@ -14,7 +14,7 @@ class SheriffDeputyModel(gtk.ListStore):
     NUM_ROWS = range(5)
 
     def __init__(self, _sheriff):
-        super(SheriffDeputyModel, self).__init__(
+        super(DeputyModel, self).__init__(
                 gobject.TYPE_PYOBJECT,
                 gobject.TYPE_STRING, # deputy id
                 gobject.TYPE_STRING, # last update time
@@ -34,12 +34,12 @@ class SheriffDeputyModel(gtk.ListStore):
                 return "<never>"
 
         def _update_deputy_row (model, path, model_iter, user_data):
-            deputy = model.get_value (model_iter, SheriffDeputyModel.COL_OBJ)
+            deputy = model.get_value (model_iter, DeputyModel.COL_OBJ)
             if deputy in to_update:
                 model.set (model_iter,
-                        SheriffDeputyModel.COL_LAST_UPDATE,
+                        DeputyModel.COL_LAST_UPDATE,
                         _deputy_last_update_str (deputy),
-                        SheriffDeputyModel.COL_LOAD,
+                        DeputyModel.COL_LOAD,
                         "%f" % deputy.cpu_load,
                         )
                 to_update.remove (deputy)
@@ -59,26 +59,26 @@ class SheriffDeputyModel(gtk.ListStore):
             self.append (new_row)
 
 
-class SheriffDeputyTreeView(gtk.TreeView):
+class DeputyTreeView(gtk.TreeView):
     def __init__(self, _sheriff, deputies_ts):
-        super(SheriffDeputyTreeView, self).__init__(deputies_ts)
+        super(DeputyTreeView, self).__init__(deputies_ts)
         self.sheriff = _sheriff
         self.deputies_ts = deputies_ts
 
         plain_tr = gtk.CellRendererText ()
-        col = gtk.TreeViewColumn ("Deputy", plain_tr, text=SheriffDeputyModel.COL_DEPUTY_ID)
+        col = gtk.TreeViewColumn ("Deputy", plain_tr, text=DeputyModel.COL_DEPUTY_ID)
         col.set_sort_column_id (1)
         col.set_resizable (True)
         self.append_column (col)
 
         last_update_tr = gtk.CellRendererText()
-        col = gtk.TreeViewColumn ("Last update", last_update_tr, text=SheriffDeputyModel.COL_LAST_UPDATE)
+        col = gtk.TreeViewColumn ("Last update", last_update_tr, text=DeputyModel.COL_LAST_UPDATE)
 #        col.set_sort_column_id (2) # XXX this triggers really weird bugs...
         col.set_resizable (True)
         col.set_cell_data_func(last_update_tr, self._deputy_last_update_cell_data_func)
         self.append_column (col)
 
-        col = gtk.TreeViewColumn ("Load", plain_tr, text=SheriffDeputyModel.COL_LOAD)
+        col = gtk.TreeViewColumn ("Load", plain_tr, text=DeputyModel.COL_LOAD)
         col.set_resizable (True)
         self.append_column (col)
 
@@ -107,7 +107,7 @@ class SheriffDeputyTreeView(gtk.TreeView):
         # bit of a hack to pull out the last update time
         try:
             last_update = float(model.get_value(model_iter,
-                SheriffDeputyModel.COL_LAST_UPDATE).split()[0])
+                DeputyModel.COL_LAST_UPDATE).split()[0])
         except:
             last_update = None
         if last_update is None or last_update > 5:

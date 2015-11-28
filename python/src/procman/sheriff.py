@@ -72,7 +72,7 @@ def make_empty_config():
     Sheriff.load_config"""
     return sheriff_config.ConfigNode()
 
-class SheriffDeputyCommand(object):
+class Command(object):
     """A command managed by a deputy, which is in turn managed by the %Sheriff.
 
     \ingroup python_api
@@ -258,7 +258,7 @@ class SheriffDeputyCommand(object):
         with self._lock:
             return self._status()
 
-class SheriffDeputy(object):
+class Deputy(object):
     """%Sheriff view of a deputy
 
     \ingroup python_api
@@ -281,7 +281,7 @@ class SheriffDeputy(object):
     def get_commands(self):
         """Retrieve a list of all commands managed by the deputy
 
-        @return a list of SheriffDeputyCommand objects
+        @return a list of Command objects
         """
         with self._lock:
             return self._commands.values()
@@ -334,7 +334,7 @@ class SheriffDeputy(object):
                 cmd = self._commands[cmd_msg.cmd.command_id]
                 old_status = cmd._status()
             else:
-                cmd = SheriffDeputyCommand(self._lock)
+                cmd = Command(self._lock)
                 cmd._exec_str = cmd_msg.cmd.exec_str
                 cmd._command_id = cmd_msg.cmd.command_id
                 cmd._group = cmd_msg.cmd.group
@@ -376,7 +376,7 @@ class SheriffDeputy(object):
                 cmd = self._commands[cmd_msg.cmd.command_id]
                 old_status = cmd._status()
             else:
-                cmd = SheriffDeputyCommand(self._lock)
+                cmd = Command(self._lock)
                 cmd._exec_str = cmd_msg.cmd.exec_str
                 cmd._command_id = cmd_msg.cmd.command_id
                 cmd._group = cmd_msg.cmd.group
@@ -401,7 +401,7 @@ class SheriffDeputy(object):
         return status_changes
 
     def _add_command(self, newcmd):
-        assert isinstance(newcmd, SheriffDeputyCommand)
+        assert isinstance(newcmd, Command)
         self._commands[newcmd._command_id] = newcmd
 
     def _schedule_for_removal(self, cmd):
@@ -445,24 +445,24 @@ class SheriffListener(object):
     def deputy_info_received(self, deputy_obj):
         """Called when information from a deputy is received and processed.
 
-        \param deputy_obj is a SheriffDeputy corresponding to the updated deputy.
+        \param deputy_obj is a Deputy corresponding to the updated deputy.
         """
         return
 
     def command_added(self, deputy_obj, cmd_obj):
         """Called when a new command is added to the sheriff.
 
-        \param deputy_obj is a SheriffDeputy for the deputy that owns the
+        \param deputy_obj is a Deputy for the deputy that owns the
         command.
-        \param cmd_obj is a SheriffDeputyCommand for the new command.
+        \param cmd_obj is a Command for the new command.
         """
         return
 
     def command_removed(self, deputy_obj, cmd_obj):
         """Called when a command is removed from the sheriff.
 
-        \param deputy_obj is a SheriffDeputy for the deputy that owned the command.
-        \param cmd_obj is a SheriffDeputyCommand for the removed command.
+        \param deputy_obj is a Deputy for the deputy that owned the command.
+        \param cmd_obj is a Command for the removed command.
         """
         return
 
@@ -470,7 +470,7 @@ class SheriffListener(object):
         """Called when the status of a command changes (e.g., running, stopped,
         etc.).
 
-        \param cmd_obj is a SheriffDeputyCommand for the command.
+        \param cmd_obj is a Command for the command.
         \param old_status indicates the old command status.
         \param new_status indicates the new command status.
         """
@@ -567,7 +567,7 @@ class Sheriff(object):
     def _get_or_make_deputy(self, deputy_id):
         # _lock should already be acquired
         if deputy_id not in self._deputies:
-            self._deputies[deputy_id] = SheriffDeputy(deputy_id, self._lock)
+            self._deputies[deputy_id] = Deputy(deputy_id, self._lock)
         return self._deputies[deputy_id]
 
     def __deputy_info_received(self, deputy_obj):
@@ -734,7 +734,7 @@ class Sheriff(object):
             raise ValueError("Invalid deputy")
 
         dep = self._get_or_make_deputy(deputy_id)
-        newcmd = SheriffDeputyCommand(self._lock)
+        newcmd = Command(self._lock)
         newcmd._exec_str = exec_str
         newcmd._command_id = command_id
         newcmd._group = group_name
@@ -767,7 +767,7 @@ class Sheriff(object):
         (seconds) in between requesting a clean exit and forcing the command
         to stop via a SIGKILL
 
-        @return a SheriffDeputyCommand object representing the command.
+        @return a Command object representing the command.
         """
         with self._lock:
             return self._add_command(command_id, deputy_id, exec_str,
@@ -791,7 +791,7 @@ class Sheriff(object):
         running, then the deputy will start it.  If the command is already
         running, then no action is taken.
 
-        @param cmd a SheriffDeputyCommand object specifying the command to run.
+        @param cmd a Command object specifying the command to run.
         """
         with self._lock:
             self._start_command(cmd)
@@ -814,7 +814,7 @@ class Sheriff(object):
         start it.  If the command is already running, then the deputy will
         terminate it and then start it again.
 
-        @param cmd a SheriffDeputyCommand object specifying the command to
+        @param cmd a Command object specifying the command to
         restart.
         """
         with self._lock:
@@ -837,7 +837,7 @@ class Sheriff(object):
         running, then the deputy will stop it.  If the command is not running,
         then no action is taken.
 
-        @param cmd a SheriffDeputyCommand object specifying the command to stop.
+        @param cmd a Command object specifying the command to stop.
         """
         with self._lock:
             self._stop_command(cmd)
@@ -848,7 +848,7 @@ class Sheriff(object):
         command will not take effect until the next time the command is run by
         the deputy.
 
-        @param cmd a SheriffDeputyCommand object.
+        @param cmd a Command object.
         @param exec_str the actual command string to execute.
         """
         with self._lock:
@@ -857,7 +857,7 @@ class Sheriff(object):
     def set_command_group(self, cmd, group_name):
         """Set the command group.
 
-        @param cmd a SheriffDeputyCommand object.
+        @param cmd a Command object.
         @param group_name the new group name for the command.
         """
         group_name = group_name.strip("/")
@@ -874,7 +874,7 @@ class Sheriff(object):
         """Set if a deputy should auto-respawn the command when the command
         terminates.
 
-        @param cmd a SheriffDeputyCommand object.
+        @param cmd a Command object.
         @param newauto_respawn True if the command should be automatically
         restarted.
         """
@@ -910,7 +910,7 @@ class Sheriff(object):
 
         Commands are stopped before they are removed.
 
-        @param cmd a SheriffDeputyCommand object to remove.
+        @param cmd a Command object to remove.
         """
         with self._lock:
             self._schedule_command_for_removal(cmd)
@@ -940,7 +940,7 @@ class Sheriff(object):
     def get_deputies(self):
         """Retrieve a list of known deputies.
 
-        @return a list of SheriffDeputy objects.
+        @return a list of Deputy objects.
         """
         with self._lock:
             return self._deputies.values()
@@ -966,11 +966,11 @@ class Sheriff(object):
         raise KeyError("No such command")
 
     def get_command_deputy(self, command):
-        """Retrieve the SheriffDeputy that manages the specified command.
+        """Retrieve the Deputy that manages the specified command.
 
-        @param command a SheriffDeputyCommand object
+        @param command a Command object
 
-        @return a SheriffDeputy object corresponding to the deputy that manages
+        @return a Deputy object corresponding to the deputy that manages
         the specified command.
         """
         with self._lock:
@@ -985,7 +985,7 @@ class Sheriff(object):
     def get_all_commands(self):
         """Retrieve all commands managed by all deputies.
 
-        @return a list of SheriffDeputyCommand objects.
+        @return a list of Command objects.
         """
         with self._lock:
             return self._get_all_commands()
@@ -1001,7 +1001,7 @@ class Sheriff(object):
 
         @param cmd_id the desired command id.
 
-        @return a SheriffDeputyCommand object matching the query, or None.
+        @return a Command object matching the query, or None.
         """
         with self._lock:
             return self._get_command(cmd_id)
@@ -1028,7 +1028,7 @@ class Sheriff(object):
 
         @param group_name the name of the desired group
 
-        @return a list of SheriffDeputyCommand objects.
+        @return a list of Command objects.
         """
         with self._lock:
             return self._get_commands_by_group(group_name)

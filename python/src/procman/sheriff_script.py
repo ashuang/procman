@@ -211,6 +211,8 @@ class SMSheriffListener(SheriffListener):
         return
 
 class ScriptListener(object):
+    """Inherit from this class to receive notifications of script activity.
+    """
     def script_added(self, script_object):
         """Called when a script
         is added.
@@ -254,6 +256,8 @@ class ScriptListener(object):
         return
 
 class ScriptManager(object):
+    """Manages scripts (saves, loads, executes).
+    """
     def __init__(self, sheriff):
         self._sheriff = sheriff
 

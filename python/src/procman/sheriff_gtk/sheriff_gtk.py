@@ -166,8 +166,8 @@ class SheriffGtk(SheriffListener):
             view_menu.append(col_cmi)
 
         # setup the deputies treeview
-        self.deputies_ts = ht.SheriffDeputyModel(self.sheriff)
-        self.deputies_tv = ht.SheriffDeputyTreeView(self.sheriff, self.deputies_ts)
+        self.deputies_ts = ht.DeputyModel(self.sheriff)
+        self.deputies_tv = ht.DeputyTreeView(self.sheriff, self.deputies_ts)
         sw = gtk.ScrolledWindow ()
         sw.set_policy (gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         hpane.pack2 (sw, resize = False)
