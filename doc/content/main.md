@@ -12,7 +12,7 @@ A single GUI provides the following features:
 - group processes together (e.g., the "controls" group) for organization
 - run simple scripts
 
-In addition to the GUI, there is also a Python API for more programmatic
+In addition to the GUI, there is also a [Python API](\ref python_api) for more programmatic
 control of processes.
 
 # Table of Contents {#procman_toc}

@@ -69,35 +69,41 @@ class SheriffCommandSpec(object):
     __slots__ = [ "deputy_id", "exec_str", "command_id", "group_name",
             "auto_respawn", "stop_signal", "stop_time_allowed" ]
 
-    def __init__(self):
+    def __init__(self, command_id, deputy_id, exec_str,
+            group_name = "",
+            auto_respawn = False,
+            stop_signal = DEFAULT_STOP_SIGNAL,
+            stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED):
         """Initializer.
+
+        The @p command_id, @p deputy_id, and @p exec_str arguments are
+        required. All others are optional.
         """
+        ## An identifier string for this command.  Must be unique across all commands.
+        self.command_id = command_id
 
         ## the name of the deputy that will manage this command.
-        self.deputy_id = ""
+        self.deputy_id = deputy_id
 
         ## the actual command string to execute.
-        self.exec_str = ""
-
-        ## an identifier string for this command.  Must be unique within a deputy.
-        self.command_id = ""
+        self.exec_str = exec_str
 
         ## the command group name, or the empty string for no group.
-        self.group_name = ""
+        self.group_name = group_name
 
         ## True if the deputy should automatically restart the
         # command when it exits.  Auto respawning only happens when the desired
         # state of the command is running.
-        self.auto_respawn = False
+        self.auto_respawn = auto_respawn
 
         ## When stopping the command, this OS-level signal will be sent to the
         # command to request a clean exit.  The default is SIGINT
-        self.stop_signal = DEFAULT_STOP_SIGNAL
+        self.stop_signal = stop_signal
 
         ## When stopping the command, the deputy will wait this amount of time
         # (seconds) in between requesting a clean exit and forcing the command
         # to stop via a SIGKILL
-        self.stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED
+        self.stop_time_allowed = stop_time_allowed
 
 class SheriffDeputyCommand(object):
     """A command managed by a deputy, which is in turn managed by the %Sheriff.
@@ -547,7 +553,7 @@ class Sheriff(object):
         lcm_obj.handle()
     \endcode
 
-    ## SheriffListener ##
+    ## %SheriffListener ##
     To be notified of when a command is added, started, stopped, etc., create a
     subclass of procman.SheriffListener and attach it to the sheriff via
     add_listener().
@@ -558,7 +564,8 @@ class Sheriff(object):
 
         \param lcm_obj the LCM object to use for communication.  If None, then
         the sheriff creates a new lcm.LCM() instance and spawns a thread that
-        endlessly calls LCM.handle().
+        endlessly calls LCM.handle(). If this is passed in by the user, then
+        the user is expected to call LCM.handle().
         """
         self._lcm = lcm_obj
         self._lcm_thread = None
@@ -875,9 +882,7 @@ class Sheriff(object):
         with self._lock:
             if self._is_observer:
                 raise ValueError("Can't modify commands in Observer mode")
-    #        deputy = self._get_command_deputy(cmd)
-            old_group = cmd._group
-            if old_group != group_name:
+            if cmd._group != group_name:
                 cmd._group = group_name
                 self.__command_group_changed(cmd)
 
@@ -1060,18 +1065,20 @@ class Sheriff(object):
             auto_respawn = auto_respawn_val in [ "true", "yes" ]
             assert group_node.name == cmd_node.attributes["group"]
 
-            spec = SheriffCommandSpec()
-            spec.deputy_id = cmd_node.attributes["deputy"]
-            spec.exec_str = cmd_node.attributes["exec"]
-            spec.command_id = cmd_node.attributes["command_id"]
-            spec.group_name = name_prefix + group_node.name
-            spec.auto_respawn = auto_respawn
-            spec.stop_signal = cmd_node.attributes["stop_signal"]
-            spec.stop_time_allowed = cmd_node.attributes["stop_time_allowed"]
-            if spec.stop_signal == 0:
-                spec.stop_signal = DEFAULT_STOP_SIGNAL
-            if spec.stop_time_allowed == 0:
-                spec.stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED
+            stop_signal = cmd_node.attributes["stop_signal"]
+            stop_time_allowed = cmd_node.attributes["stop_time_allowed"]
+            if stop_signal == 0:
+                stop_signal = DEFAULT_STOP_SIGNAL
+            if stop_time_allowed == 0:
+                stop_time_allowed = DEFAULT_STOP_TIME_ALLOWED
+
+            spec = SheriffCommandSpec(cmd_node.attributes["command_id"],
+                    cmd_node.attributes["deputy"],
+                    cmd_node.attributes["exec"],
+                    name_prefix + group_node.name,
+                    auto_respawn,
+                    stop_signal,
+                    stop_time_allowed)
 
             result.append(spec)
 

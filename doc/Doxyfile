@@ -20,4 +20,4 @@ EXAMPLE_PATTERNS       = *.lcm
 
 IMAGE_PATH             = images
 INPUT_FILTER           =
-FILTER_PATTERNS        = *.py=doxypy
+FILTER_PATTERNS        = *.py=./doxypypy.py

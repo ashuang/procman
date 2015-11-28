@@ -8,7 +8,7 @@ Procman communications{#procman_comms}
 Sheriffs and deputies communicate by transmitting
 LCM messages to each other.  Together, the LCM
 messages define the Procman communications protocol.  LCM
-(http://lcm.googlecode.com) is a publish/subscribe message passing system that
+(http://lcm-proj.github.io) is a publish/subscribe message passing system that
 typically uses UDP multicast as its underlying transport.  It may be configured
 to use other types of transport as well, such as TCP.
 
@@ -57,7 +57,7 @@ The deputy transmits the following messages:
 LCM Channel | Message type | Description
 ------------|--------------|-------------
 `PM_INFO` | [deputy_info_t](\ref procman_lcm_deputy_info_t) | Summarizes the state of all commands managed by a deputy.  Transmitted at 1 Hz or when a command status changes.
-`PM_OUTPUT` | [output_t](\ref procman_lcm_output_t) | Published when a hosted command generates output to stdout or stderr, and contains the output produced by the command.
+`PM_OUTPUT` | [output_t](\ref procman_lcm_output_t) | Published when a hosted command writes output to stdout or stderr, and contains the output produced by the command.
 `PM_DISCOVER` | [discovery_t](\ref procman_lcm_discovery_t) | Published to check for conflicting deputies with the same ID.  Published when a deputy first starts up.
 
 ## Messages received by deputy {#procman_comms_deputy_received}
@@ -66,8 +66,8 @@ The deputy subscribes to the following messages:
 
 LCM Channel | Message type | Description
 ------------|--------------|-------------
-`PM_DISOCVER` | [discovery_t](\ref procman_lcm_discovery_t) | When received, the deputy replies by transmitting its state on `PM_INFO`.
-`PM_ORDERS` | [orders_t](\ref procman_lcm_orders_t) | When received, the deputy checks if the orders are targeted for it.  If not, or if the timestamp on the orders differs significantly from the deputy's system clock, then it ignores the message.  Otherwise, the deputy modifies its state to achieve the state indicated by the orders.  This may involve creating, starting, and stopping commands.
+`PM_DISOCVER` | [discovery_t](\ref procman_lcm_discovery_t) | When received, the deputy replies by transmitting its state on channel `PM_INFO`.
+`PM_ORDERS` | [orders_t](\ref procman_lcm_orders_t) | When received, the deputy adds/removes/starts/stops commands as indicated by the orders. There are some basic checks to ensure that orders are actually targeted for the deputy.
 
 # Sheriff {#procman_comms_sheriff}
 
@@ -88,20 +88,20 @@ LCM Channel | Message type | Description
 
 # Appendix - message definitions {#procman_lcm_message_defs}
 
-## procman.deputy_info_t {#procman_lcm_deputy_info_t}
-\include procman_deputy_info_t.lcm
+## procman_lcm.deputy_info_t {#procman_lcm_deputy_info_t}
+\include procman_lcm_deputy_info_t.lcm
 
-## procman.cmd_status_t {#procman_lcm_cmd_status_t}
-\include procman_cmd_status_t.lcm
+## procman_lcm.cmd_status_t {#procman_lcm_cmd_status_t}
+\include procman_lcm_cmd_status_t.lcm
 
-## procman.cmd_t {#procman_lcm_cmd_t}
-\include procman_cmd_t.lcm
+## procman_lcm.cmd_t {#procman_lcm_cmd_t}
+\include procman_lcm_cmd_t.lcm
 
-## procman.output_t {#procman_lcm_output_t}
-\include procman_output_t.lcm
+## procman_lcm.output_t {#procman_lcm_output_t}
+\include procman_lcm_output_t.lcm
 
-## procman.discovery_t {#procman_lcm_discovery_t}
-\include procman_discovery_t.lcm
+## procman_lcm.discovery_t {#procman_lcm_discovery_t}
+\include procman_lcm_discovery_t.lcm
 
-## procman.orders_t {#procman_lcm_orders_t}
-\include procman_orders_t.lcm
+## procman_lcm.orders_t {#procman_lcm_orders_t}
+\include procman_lcm_orders_t.lcm

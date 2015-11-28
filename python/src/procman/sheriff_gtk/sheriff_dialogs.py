@@ -216,14 +216,13 @@ def do_add_command_dialog(sheriff, cmds_ts, window):
             cmds_ts.get_known_group_names(), initial_cmd_id = initial_cmd_id)
 
     while dlg.run () == gtk.RESPONSE_ACCEPT:
-        spec = SheriffCommandSpec()
-        spec.exec_str = dlg.get_command()
-        spec.command_id = dlg.get_command_id()
-        spec.deputy_id = dlg.get_deputy()
-        spec.group_name = dlg.get_group().strip()
-        spec.auto_respawn = dlg.get_auto_respawn ()
-        spec.stop_signal = dlg.get_stop_signal()
-        spec.stop_time_allowed = dlg.get_stop_time_allowed()
+        spec = SheriffCommandSpec(dlg.get_command_id(),
+                dlg.get_deputy(),
+                dlg.get_command(),
+                dlg.get_group().strip(),
+                dlg.get_auto_respawn(),
+                dlg.get_stop_signal(),
+                dlg.get_stop_time_allowed())
 
         try:
             sheriff.add_command(spec)

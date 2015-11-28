@@ -1,7 +1,6 @@
 import gtk
 import pango
 
-from procman.sheriff import SheriffCommandSpec
 import procman.sheriff as sheriff
 import procman.sheriff_gtk.command_model as cm
 import procman.sheriff_gtk.sheriff_dialogs as sd
