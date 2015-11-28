@@ -7,7 +7,7 @@ import gtk
 
 from procman.sheriff_config import Parser, ScriptNode
 from procman.sheriff_script import SheriffScript, ScriptManager
-from procman.sheriff import SheriffCommandSpec, DEFAULT_STOP_SIGNAL, DEFAULT_STOP_TIME_ALLOWED
+from procman.sheriff import DEFAULT_STOP_SIGNAL, DEFAULT_STOP_TIME_ALLOWED
 
 class AddModifyCommandDialog (gtk.Dialog):
     def __init__ (self, parent, deputies, groups,
@@ -216,16 +216,14 @@ def do_add_command_dialog(sheriff, cmds_ts, window):
             cmds_ts.get_known_group_names(), initial_cmd_id = initial_cmd_id)
 
     while dlg.run() == gtk.RESPONSE_ACCEPT:
-        spec = SheriffCommandSpec(dlg.get_command_id(),
+        try:
+            sheriff.add_command(dlg.get_command_id(),
                 dlg.get_deputy(),
                 dlg.get_command(),
                 dlg.get_group().strip(),
                 dlg.get_auto_respawn(),
                 dlg.get_stop_signal(),
                 dlg.get_stop_time_allowed())
-
-        try:
-            sheriff.add_command(spec)
             break
         except ValueError, xcp:
             msgdlg = gtk.MessageDialog(window,

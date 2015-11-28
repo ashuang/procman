@@ -1,1 +1,1 @@
-from .sheriff import Sheriff, SheriffCommandSpec
+from .sheriff import Sheriff
