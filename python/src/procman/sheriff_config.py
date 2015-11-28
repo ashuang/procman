@@ -525,9 +525,6 @@ class Parser:
         self._parse_listdecl()
         return self._node
 
-def config_from_filename (fname):
-    return Parser ().parse (file (fname))
-
 if __name__ == "__main__":
     import sys
     try:
@@ -536,4 +533,5 @@ if __name__ == "__main__":
         print "usage: sheriff_config.py <fname>"
         sys.exit (1)
 
-    print config_from_filename (fname)
+    config = Parser().parse(file(fname))
+    print config

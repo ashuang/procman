@@ -61,6 +61,17 @@ RESTARTING = "Restarting (Command Sent)"
 DEFAULT_STOP_SIGNAL = signal.SIGINT
 DEFAULT_STOP_TIME_ALLOWED = 7
 
+def load_config_file(file_obj):
+    return sheriff_config.Parser().parse(file_obj)
+
+def save_config_file(config_obj, file_obj):
+    file_obj.write(str(config_obj))
+
+def make_empty_config():
+    """Creates an empty config object for use with save_config_file(),
+    Sheriff.load_config"""
+    return sheriff_config.ConfigNode()
+
 class SheriffDeputyCommand(object):
     """A command managed by a deputy, which is in turn managed by the %Sheriff.
 
@@ -1052,10 +1063,12 @@ class Sheriff(object):
                 self._add_commands_from_config(subgroup, "")
         return result
 
-    def load_config(self, config_node):
+    def load_config(self, config_obj):
+        """Load a process configuration from the specific config object.
+
+        @param config_obj a config object created by calling load_config_file()
         """
-        config_node should be an instance of sheriff_config.ConfigNode
-        """
+        # config_obj should be an instance of sheriff_config.ConfigNode
         with self._lock:
             if self._is_observer:
                 raise ValueError("Can't load config in Observer mode")
@@ -1063,16 +1076,16 @@ class Sheriff(object):
             if self._get_all_commands():
                 raise RuntimeError("Remove all commands before loading a config file")
 
-            self._add_commands_from_config(config_node.root_group, "")
+            self._add_commands_from_config(config_obj.root_group, "")
 
-    def save_config(self, config_node):
+    def save_config(self, config_obj):
         """Write the current sheriff configuration to the specified config
         object.  The current sheriff configuration consists of all commands
-        managed by all deputies along with their settings.  This information is
-        written out to the specified file object, which can then be loaded into
-        the sheriff again at a later point in time.
+        managed by all deputies along with their settings.
 
-        @param config_node output ConfigNode object
+        To save config_obj to a file, use save_config_file()
+
+        @param config_obj output config object, created with make_empty_config().
         """
         with self._lock:
             for deputy in self._deputies.values():
@@ -1084,7 +1097,7 @@ class Sheriff(object):
                     if cmd._auto_respawn:
                         cmd_node.attributes["auto_respawn"] = "true"
 
-                    group = config_node.get_group(cmd._group, True)
+                    group = config_obj.get_group(cmd._group, True)
                     group.add_command(cmd_node)
 
     def _lcm_thread(self):

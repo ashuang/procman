@@ -16,6 +16,7 @@ import pango
 
 from lcm import LCM
 
+import procman.sheriff as sheriff
 from procman.sheriff import Sheriff, SheriffListener
 from procman.sheriff_cli import SheriffHeadless, find_procman_deputy_cmd
 from procman.sheriff_script import ScriptManager
@@ -519,7 +520,7 @@ class SheriffGtk(SheriffListener):
             self.config_filename = self.load_dlg.get_filename ()
             self.load_save_dir = os.path.dirname(self.config_filename)
             try:
-                cfg = sheriff_config.config_from_filename (self.config_filename)
+                cfg = sheriff.load_config_file(file(self.config_filename))
             except Exception:
                 msgdlg = gtk.MessageDialog (self.window,
                         gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
@@ -680,7 +681,7 @@ def main():
     script_name = None
     if len(args) > 0:
         try:
-            cfg = sheriff_config.config_from_filename(args[0])
+            cfg = sheriff.load_config_file(file(args[0]))
         except Exception, xcp:
             print "Unable to load config file."
             print xcp
