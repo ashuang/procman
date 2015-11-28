@@ -100,7 +100,7 @@ class SheriffDeputyTreeView(gtk.TreeView):
             return True
 
     def _cleanup_deputies(self, *args):
-        self.sheriff.purge_useless_deputies()
+        self.sheriff.remove_empty_deputies()
         self.deputies_ts.update()
 
     def _deputy_last_update_cell_data_func (self, column, cell, model, model_iter):

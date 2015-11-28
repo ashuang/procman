@@ -181,7 +181,7 @@ class SheriffCommandTreeView(gtk.TreeView):
 
     def _remove_selected_commands (self, *args):
         for cmd in self.get_selected_commands ():
-            self.sheriff.schedule_command_for_removal (cmd)
+            self.sheriff.remove_command(cmd)
 
     def _edit_selected_command(self, *args):
         cmds = self.get_selected_commands()

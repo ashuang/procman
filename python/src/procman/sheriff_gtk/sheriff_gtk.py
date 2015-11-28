@@ -503,7 +503,7 @@ class SheriffGtk(SheriffListener):
         current_cmds = self.sheriff.get_all_commands()
         if current_cmds:
             for cmd in current_cmds:
-                self.sheriff.schedule_command_for_removal(cmd)
+                self.sheriff.remove_command(cmd)
         else:
             self._do_load_config()
 

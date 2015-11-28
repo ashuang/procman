@@ -892,10 +892,12 @@ class Sheriff(object):
         self._maybe_emit_status_change_signals(deputy, status_changes)
         self._send_orders()
 
-    def schedule_command_for_removal(self, cmd):
+    def remove_command(self, cmd):
         """Remove a command.  This starts the process of purging a command from
         the sheriff and deputies.  It is not instantaneous, because the sheriff
         needs to wait for removal confirmation from the deputy.
+
+        Commands are stopped before they are removed.
 
         @param cmd a SheriffDeputyCommand object to remove.
         """
@@ -932,7 +934,7 @@ class Sheriff(object):
         with self._lock:
             return self._deputies.values()
 
-    def purge_useless_deputies(self):
+    def remove_empty_deputies(self):
         """Clean up the Sheriff internal state.
 
         This method is meant to be called when a deputy process has no more
