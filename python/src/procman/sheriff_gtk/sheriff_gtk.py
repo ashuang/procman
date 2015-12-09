@@ -94,7 +94,8 @@ class SheriffGtk(SheriffListener):
         self.window = self.builder.get_object("main_window")
 
         self.cmds_ts = cm.SheriffCommandModel(self.sheriff)
-        self.cmds_tv = ctv.SheriffCommandTreeView(self.sheriff, self.cmds_ts)
+        self.cmds_tv = ctv.SheriffCommandTreeView(self.sheriff, self.script_manager,
+                self.cmds_ts)
 
         # load save menu
         self.load_cfg_mi = self.builder.get_object("load_cfg_mi")

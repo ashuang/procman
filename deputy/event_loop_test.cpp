@@ -58,14 +58,16 @@ void TestSockets() {
 
   SocketNotifierPtr sock = loop.AddSocket(read_fd, EventLoop::kRead,
       [&read_fd, &read_buf, &loop]() {
-        read(read_fd, read_buf, sizeof(read_buf));
+        const int unused = read(read_fd, read_buf, sizeof(read_buf));
+        (void) unused;
         loop.Quit();
       });
 
   const char* write_text = "hello";
   int num_write_bytes = strlen(write_text);
   strncpy(write_buf, write_text, sizeof(write_buf));
-  write(write_fd, write_buf, num_write_bytes);
+  const int unused = write(write_fd, write_buf, num_write_bytes);
+  (void) unused;
 
   loop.Run();
 

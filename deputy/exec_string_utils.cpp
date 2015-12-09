@@ -36,15 +36,14 @@ void Strfreev(char** vec) {
   for (char** ptr = vec; *ptr; ++ptr) {
     free(*ptr);
   }
+  free(vec);
 }
 
 class VariableExpander {
   public:
-    VariableExpander(const std::string& input,
-        const StringStringMap& vars) :
+    VariableExpander(const std::string& input) :
       input_(input),
-      pos_(0),
-      variables_(&vars) {
+      pos_(0) {
       Process();
     }
 
@@ -114,15 +113,8 @@ class VariableExpander {
       }
       bool ok = varname_len && braces_ok;
       if (ok) {
-        // first lookup the variable in our stored table
-        const char* val = nullptr;
-        auto iter = variables_->find(varname);
-        if (iter != variables_->end()) {
-          val = iter->second.c_str();
-        } else {
-          val = getenv(varname);
-        }
-        // if that fails, then check for a similar environment variable
+        // lookup the environment variable
+        const char* val = getenv(varname);
         if (val) {
           output_ << val;
         } else {
@@ -147,12 +139,10 @@ class VariableExpander {
     int pos_;
     char cur_char_;
     std::stringstream output_;
-    const StringStringMap* variables_;
 };
 
-std::string ExpandVariables(const std::string& input,
-    const StringStringMap& vars) {
-  return VariableExpander(input, vars).Result();
+std::string ExpandVariables(const std::string& input) {
+  return VariableExpander(input).Result();
 }
 
 class ArgSeparator {

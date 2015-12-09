@@ -9,17 +9,10 @@
 
 namespace procman {
 
-typedef std::map<std::string, std::string> StringStringMap;
-
 enum CommandStatus {
   PROCMAN_CMD_STOPPED = 0,
   PROCMAN_CMD_RUNNING,
   PROCMAN_CMD_INVALID
-};
-
-struct ProcmanOptions {
-  static ProcmanOptions Default();
-  bool verbose;
 };
 
 class ProcmanCommand {
@@ -27,8 +20,6 @@ class ProcmanCommand {
     ~ProcmanCommand();
 
     const std::string& ExecStr() const { return exec_str_; }
-
-    const std::string& Id() const { return cmd_id_; }
 
     int Pid() const { return pid_; }
 
@@ -39,8 +30,7 @@ class ProcmanCommand {
     int ExitStatus() const { return exit_status_; }
 
   private:
-    ProcmanCommand(const std::string& exec_str,
-        const std::string& cmd_id);
+    ProcmanCommand(const std::string& exec_str);
 
     void SetPid(int pid) { pid_ = pid; }
 
@@ -50,12 +40,9 @@ class ProcmanCommand {
 
     void SetExitStatus(int status) { exit_status_ = status; }
 
-    void PrepareArgsAndEnvironment(const StringStringMap& variables);
+    void PrepareArgsAndEnvironment();
 
     friend class Procman;
-
-    // a user-assigned name for the command.
-    std::string cmd_id_;
 
     // the command to execute.
     std::string exec_str_;
@@ -77,7 +64,7 @@ class ProcmanCommand {
     char **argv_;
 
     // environment variables to set
-    StringStringMap environment_;
+    std::map<std::string, std::string> environment_;
 
     std::vector<int> descendants_to_kill_; // Used internally when killing a process.
 };
@@ -86,73 +73,79 @@ typedef std::shared_ptr<ProcmanCommand> ProcmanCommandPtr;
 
 class Procman {
   public:
-    Procman(const ProcmanOptions& options);
+    Procman();
 
     /**
-     * Removes all variables from the variable expansion table.
+     * Destructor.
+     *
+     * On desctruction, calls RemoveCommand() on all commands.
      */
-    void RemoveAllVariables();
+    ~Procman();
 
-    // returns a doubly linked list, where each data element is a ProcmanCommand
-    //
-    // Do not modify this list, or it's contents!
     const std::vector<ProcmanCommandPtr>& GetCommands();
 
-    int StartCommand(ProcmanCommandPtr cmd);
-    int StopCommand(ProcmanCommandPtr cmd);
-    int KillCommmand(ProcmanCommandPtr cmd, int signum);
+    /**
+     * Starts a command running.
+     */
+    void StartCommand(ProcmanCommandPtr cmd);
 
-    // convenience functions
-    int StopAllCommands();
+    /**
+     * Sends the specified POSIX signal to a command.
+     */
+    bool KillCommand(ProcmanCommandPtr cmd, int signum);
 
-    /* adds a command to be managed by procman.  returns a pointer to a newly
+    /**
+     * Adds a command to be managed by procman.  returns a pointer to a newly
      * created ProcmanCommand, or NULL on failure
      *
      * The command is not started.  To start a command running, use
      * procman_start_cmd
      */
-    ProcmanCommandPtr AddCommand(const std::string& exec_str, const std::string& cmd_id);
+    ProcmanCommandPtr AddCommand(const std::string& exec_str);
 
-    /* Removes a command from management by procman.  The command must already be
-     * stopped and reaped by procman_check_for_dead_children.  Otherwise, this
-     * function will fail.  On success, the %cmd structure is destroyed and no
-     * longer available for use.
+    /**
+     * Removes a command from management by procman.
+     *
+     * If the command is not already stopped, then RemoveCommand() blocks and
+     * waits for the command to stop running. RemoveCommand() does _not_ try to
+     * actively stop the command by sending it a signal or anything like that.
      */
-    bool RemoveCommand(ProcmanCommandPtr cmd);
+    void RemoveCommand(ProcmanCommandPtr cmd);
 
-    /* checks to see if any processes spawned by procman_start_cmd have died
+    /**
+     * Checks to see if any processes have stopped running.
      *
-     * dead_child should point to an unused ProcmanCommand *
+     * If a child process has died, then a pointer to the dead command is
+     * returned. Otherwise, an empty pointer is returned.
      *
-     * on return, if a child process has died, then it is reaped and a pointer to
-     * the ProcmanCommand is placed in dead_child.  If no children have died, then
-     * dead_child points to NULL on return.
-     *
-     * This function does not block
-     *
-     * returns 0 on success, -1 on failure
+     * This function does not block.
      */
-    ProcmanCommandPtr CheckForDeadChildren();
+    ProcmanCommandPtr CheckForStoppedCommands();
 
-    int CloseDeadPipes(ProcmanCommandPtr cmd);
+    /**
+     * Cleans up resources used by the stopped command.
+     *
+     * Call this after a command has terminated but you don't want to remove
+     * it (e.g., it might be started again later).
+     *
+     * This method is automatically called by RemoveCommand(), so if you're
+     * removing a command then there's no need to explicitly call
+     * CleanupStoppedCommand().
+     */
+    void CleanupStoppedCommand(ProcmanCommandPtr cmd);
 
     CommandStatus GetCommandStatus(ProcmanCommandPtr cmd);
 
-    /* Changes the command that will be executed for a ProcmanCommand
-     * no effect until the command is started again (if it's currently running)
+    /* Changes the command that will be executed.
+     *
+     * This has no effect until the command is next started.
      */
     void SetCommandExecStr(ProcmanCommandPtr cmd, const std::string& exec_str);
 
-    /**
-     * Sets the command id.
-     */
-    void SetCommandId(ProcmanCommandPtr cmd, const std::string& cmd_id);
-
   private:
     void CheckCommand(ProcmanCommandPtr cmd);
-    ProcmanOptions options_;
     std::vector<ProcmanCommandPtr> commands_;
-    StringStringMap variables_;
+    std::vector<ProcmanCommandPtr> dead_children_;
 };
 
 }  // namespace procman

@@ -12,11 +12,10 @@ namespace procman {
 /**
  * Do variable expansion on a command argument.  This searches the argument for
  * text of the form $VARNAME and ${VARNAME}.  For each discovered variable, it
- * then expands the variable.  Values defined in the hashtable vars are used
- * first, followed by environment variable values.  If a variable expansion
+ * then expands the variable using the environment. If a variable expansion
  * fails, then the corresponding text is left unchanged.
  */
-std::string ExpandVariables(const std::string& input, const StringStringMap& vars);
+std::string ExpandVariables(const std::string& input);
 
 std::vector<std::string> SeparateArgs(const std::string& input);
 

@@ -1,13 +1,13 @@
+#include <assert.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <unistd.h>
 #include <string.h>
-#include <ctype.h>
-#include <time.h>
-#include <errno.h>
 #include <sys/time.h>
-#include <stdarg.h>
+#include <time.h>
+#include <unistd.h>
 
 #ifdef __APPLE__
 #include <util.h>
@@ -27,119 +27,98 @@
 
 namespace procman {
 
-static void dbgt (const char *fmt, ...) {
-    va_list ap;
-    va_start (ap, fmt);
+#if 1
+#define dbg(...)
+#else
+#define dbg(...) do { fprintf(stderr, __VA_ARGS__); } while(0)
+#endif
 
-    char timebuf[80];
-    struct timeval now_tv;
-    gettimeofday(&now_tv, NULL);
-    struct tm now_tm;
-    localtime_r(&now_tv.tv_sec, &now_tm);
-    int pos = strftime(timebuf, sizeof(timebuf), "%FT%T", &now_tm);
-    pos += snprintf(timebuf + pos, sizeof(timebuf)-pos, ".%03d", (int)(now_tv.tv_usec / 1000));
-    strftime(timebuf + pos, sizeof(timebuf)-pos, "%z", &now_tm);
-
-    char buf[4096];
-    vsnprintf (buf, sizeof(buf), fmt, ap);
-
-    va_end (ap);
-
-    fprintf (stderr, "%s %s", timebuf, buf);
+Procman::Procman() {
 }
 
-ProcmanOptions ProcmanOptions::Default() {
-  ProcmanOptions result;
-  result.verbose = false;
-  return result;
+Procman::~Procman() {
+  while (!commands_.empty()) {
+    RemoveCommand(commands_.front());
+  }
 }
 
-Procman::Procman(const ProcmanOptions& options) :
-  options_(options),
-  variables_() {
-}
+void Procman::StartCommand(ProcmanCommandPtr cmd) {
+  if (0 != cmd->Pid()) {
+    // Command is already running.
+    return;
+  }
+  dbg("starting [%s]\n", cmd->ExecStr().c_str());
 
-int Procman::StartCommand(ProcmanCommandPtr cmd) {
-    int status;
+  cmd->PrepareArgsAndEnvironment();
 
-    if (0 != cmd->Pid()) {
-        dbgt ("[%s] has non-zero PID.  not starting again\n", cmd->Id().c_str());
-        return -1;
-    } else {
-        dbgt ("[%s] starting\n", cmd->Id().c_str());
+  // close existing fd's
+  if (cmd->StdoutFd() >= 0) {
+    close (cmd->StdoutFd());
+    cmd->SetStdoutFd(-1);
+  }
+  cmd->SetStdinFd(-1);
+  cmd->SetExitStatus(0);
 
-        cmd->PrepareArgsAndEnvironment(variables_);
+  // make a backup of stderr, in case something bad happens during exec.
+  // if exec succeeds, then we have a dangling file descriptor that
+  // gets closed when the child exits... that's okay
+  const int stderr_backup = dup(STDERR_FILENO);
 
-        // close existing fd's
-        if (cmd->StdoutFd() >= 0) {
-            close (cmd->StdoutFd());
-            cmd->SetStdoutFd(-1);
-        }
-        cmd->SetStdinFd(-1);
-        cmd->SetExitStatus(0);
-
-        // make a backup of stderr, in case something bad happens during exec.
-        // if exec succeeds, then we have a dangling file descriptor that
-        // gets closed when the child exits... that's okay
-        int stderr_backup = dup(STDERR_FILENO);
-
-        int stdin_fd;
-        int pid = forkpty(&stdin_fd, NULL, NULL, NULL);
-        cmd->SetStdinFd(stdin_fd);
-        if (0 == pid) {
-            // set environment variables from the beginning of the command
-          for (auto& item : cmd->environment_) {
-            setenv(item.first.c_str(), item.second.c_str(), 1);
-          }
-
-            // go!
-            execvp(cmd->argv_[0], cmd->argv_);
-
-            char ebuf[1024];
-            snprintf (ebuf, sizeof(ebuf), "%s", strerror(errno));
-            dbgt("[%s] ERRROR executing [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
-            dbgt("[%s] execv: %s\n", cmd->Id().c_str(), ebuf);
-
-            // if execv returns, the command did not execute successfully
-            // (e.g. permission denied or bad path or something)
-
-            // restore stderr so we can barf a real error message
-            close(STDERR_FILENO);
-            dup2(stderr_backup, STDERR_FILENO);
-            dbgt("[%s] ERROR executing [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
-            dbgt("[%s] execv: %s\n", cmd->Id().c_str(), ebuf);
-            close(stderr_backup);
-
-            exit(-1);
-        } else if (pid < 0) {
-            perror("forkpty");
-            close(stderr_backup);
-            return -1;
-        } else {
-            cmd->SetPid(pid);
-            cmd->SetStdoutFd(cmd->StdinFd());
-            close(stderr_backup);
-        }
+  int stdin_fd;
+  const int pid = forkpty(&stdin_fd, NULL, NULL, NULL);
+  cmd->SetStdinFd(stdin_fd);
+  if (0 == pid) {
+    // set environment variables from the beginning of the command
+    for (auto& item : cmd->environment_) {
+      setenv(item.first.c_str(), item.second.c_str(), 1);
     }
-    return 0;
+
+    // go!
+    execvp(cmd->argv_[0], cmd->argv_);
+
+    char ebuf[1024];
+    snprintf (ebuf, sizeof(ebuf), "%s", strerror(errno));
+    fprintf(stderr, "ERRROR executing [%s]\n", cmd->ExecStr().c_str());
+    fprintf(stderr, "       execv: %s\n", ebuf);
+
+    // if execv returns, the command did not execute successfully
+    // (e.g. permission denied or bad path or something)
+
+    // restore stderr so we can barf a real error message
+    close(STDERR_FILENO);
+    dup2(stderr_backup, STDERR_FILENO);
+    fprintf(stderr, "ERROR executing [%s]\n", cmd->ExecStr().c_str());
+    fprintf(stderr, "      execv: %s\n", ebuf);
+    close(stderr_backup);
+
+    exit(-1);
+  } else if (pid < 0) {
+    const std::string errmsg(strerror(errno));
+    close(stderr_backup);
+    throw std::runtime_error("forkpty: " + errmsg);
+  } else {
+    cmd->SetPid(pid);
+    cmd->SetStdoutFd(cmd->StdinFd());
+    close(stderr_backup);
+  }
 }
 
-int Procman::KillCommmand(ProcmanCommandPtr cmd, int signum) {
+bool Procman::KillCommand(ProcmanCommandPtr cmd, int signum) {
   if (0 == cmd->Pid()) {
-    dbgt ("[%s] has no PID.  not stopping (already dead)\n", cmd->Id().c_str());
-    return -EINVAL;
+    dbg ("[%s] has no PID.  not stopping (already dead)\n", cmd->ExecStr().c_str());
+    return false;
   }
   // get a list of the process's descendants
   std::vector<int> descendants = GetDescendants(cmd->Pid());
 
-  dbgt ("[%s] stop (signal %d)\n", cmd->Id().c_str(), signum);
+  dbg ("[%s] stop (signal %d)\n", cmd->ExecStr().c_str(), signum);
   if (0 != kill (cmd->Pid(), signum)) {
-    return -errno;
+    return false;
   }
 
   // send the same signal to all of the process's descendants
   for (int child_pid : descendants) {
-    dbgt("signal %d to descendant %d\n", signum, child_pid);
+    dbg("signal %d to descendant %d\n", signum, child_pid);
     kill(child_pid, signum);
 
     auto iter = std::find(cmd->descendants_to_kill_.begin(),
@@ -148,85 +127,70 @@ int Procman::KillCommmand(ProcmanCommandPtr cmd, int signum) {
       cmd->descendants_to_kill_.push_back(child_pid);
     }
   }
-  return 0;
+  return true;
 }
 
-int Procman::StopAllCommands() {
-  int ret = 0;
-
-  // loop through each managed process and try to stop it
-  for (ProcmanCommandPtr cmd : commands_) {
-    int status = KillCommmand(cmd, SIGINT);
-    if (0 != status) {
-      ret = status;
-      // If something bad happened, try to stop the other processes, but
-      // still return an error
-    }
-  }
-  return ret;
-}
-
-ProcmanCommandPtr Procman::CheckForDeadChildren() {
-  int status;
-
-  // check for dead children
-  ProcmanCommandPtr dead_child = NULL;
-  int pid = waitpid (-1, &status, WNOHANG);
-  if(pid <= 0)
-    return 0;
-
-  for (ProcmanCommandPtr cmd : commands_) {
-    if(cmd->Pid() == 0 || pid != cmd->Pid())
-      continue;
-    dead_child = cmd;
-    cmd->SetPid(0);
-    cmd->SetExitStatus(status);
-
-    if (WIFSIGNALED (status)) {
-      int signum = WTERMSIG (status);
-      dbgt ("[%s] terminated by signal %d (%s)\n",
-          cmd->Id().c_str(), signum, strsignal (signum));
-    } else if (status != 0) {
-      dbgt ("[%s] exited with status %d\n",
-          cmd->Id().c_str(), WEXITSTATUS (status));
-    } else {
-      dbgt ("[%s] exited\n", cmd->Id().c_str());
-    }
-
-    // check for and kill orphaned children.
-    for (int child_pid : cmd->descendants_to_kill_) {
-      if(IsOrphanedChildOf(child_pid, pid)) {
-        dbgt("sending SIGKILL to orphan process %d\n", child_pid);
-        kill(child_pid, SIGKILL);
+ProcmanCommandPtr Procman::CheckForStoppedCommands() {
+  int exit_status;
+  for (int pid = waitpid(-1, &exit_status, WNOHANG);
+       pid > 0;
+       pid = waitpid(-1, &exit_status, WNOHANG)) {
+    for (ProcmanCommandPtr cmd : commands_) {
+      if(pid != cmd->Pid()) {
+        continue;
       }
-    }
+      cmd->SetPid(0);
+      cmd->SetExitStatus(exit_status);
 
-    return dead_child;
+      if (WIFSIGNALED (exit_status)) {
+        int signum = WTERMSIG (exit_status);
+        dbg ("[%s] terminated by signal %d (%s)\n",
+            cmd->ExecStr().c_str(), signum, strsignal (signum));
+      } else if (exit_status != 0) {
+        dbg ("[%s] exited with status %d\n",
+            cmd->ExecStr().c_str(), WEXITSTATUS (exit_status));
+      } else {
+        dbg ("[%s] exited\n", cmd->ExecStr().c_str());
+      }
+
+      // check for and kill orphaned children.
+      for (int child_pid : cmd->descendants_to_kill_) {
+        if(IsOrphanedChildOf(child_pid, pid)) {
+          dbg("sending SIGKILL to orphan process %d\n", child_pid);
+          kill(child_pid, SIGKILL);
+        }
+      }
+
+      dead_children_.push_back(cmd);
+      break;
+    }
   }
 
-  dbgt ("reaped [%d] but couldn't find process\n", pid);
-  return dead_child;
+  if (!dead_children_.empty()) {
+    return dead_children_.front();
+  }
+  return ProcmanCommandPtr();
 }
 
-int Procman::CloseDeadPipes(ProcmanCommandPtr cmd) {
-  if (cmd->StdoutFd() < 0 && cmd->StdinFd() < 0)
-    return 0;
+void Procman::CleanupStoppedCommand(ProcmanCommandPtr cmd) {
+  auto iter = std::find(dead_children_.begin(), dead_children_.end(), cmd);
+  if (iter == dead_children_.end()) {
+    return;
+  }
+  dead_children_.erase(iter);
 
-  if (cmd->Pid()) {
-    dbgt ("refusing to close pipes for command "
-        "with nonzero pid [%s] [%d]\n",
-        cmd->Id().c_str(), cmd->Pid());
-    return 0;
+  if (cmd->StdoutFd() < 0 && cmd->StdinFd() < 0) {
+    return;
   }
   if (cmd->StdoutFd() >= 0) {
     close(cmd->StdoutFd());
   }
   cmd->SetStdinFd(-1);
   cmd->SetStdoutFd(-1);
-  return 0;
+  assert(!cmd->Pid());
 }
 
-void ProcmanCommand::PrepareArgsAndEnvironment(const StringStringMap& variables) {
+void ProcmanCommand::PrepareArgsAndEnvironment() {
   if (argv_) {
     Strfreev(argv_);
     argv_ = NULL;
@@ -245,17 +209,15 @@ void ProcmanCommand::PrepareArgsAndEnvironment(const StringStringMap& variables)
       ++num_env_vars;
     } else {
       // substitute variables
-      const std::string arg = ExpandVariables(args[i], variables);
+      const std::string arg = ExpandVariables(args[i]);
       argv_[i - num_env_vars] = strdup(arg.c_str());
     }
   }
   argc_ = args.size() - num_env_vars;
 }
 
-ProcmanCommand::ProcmanCommand(const std::string& exec_str,
-    const std::string& cmd_id) :
+ProcmanCommand::ProcmanCommand(const std::string& exec_str) :
   exec_str_(exec_str),
-  cmd_id_(cmd_id),
   pid_(0),
   stdin_fd_(-1),
   stdout_fd_(-1),
@@ -269,39 +231,30 @@ ProcmanCommand::~ProcmanCommand() {
   }
 }
 
-
 const std::vector<ProcmanCommandPtr>& Procman::GetCommands() {
   return commands_;
 }
 
-void Procman::RemoveAllVariables() {
-  variables_.clear();
-}
-
-ProcmanCommandPtr Procman::AddCommand(const std::string& exec_str, const std::string& cmd_id) {
-  ProcmanCommandPtr newcmd(new ProcmanCommand(exec_str, cmd_id));
+ProcmanCommandPtr Procman::AddCommand(const std::string& exec_str) {
+  ProcmanCommandPtr newcmd(new ProcmanCommand(exec_str));
   commands_.push_back(newcmd);
-
-  dbgt ("[%s] new command [%s]\n", cmd_id.c_str(), exec_str.c_str());
-
+  dbg("new command [%s]\n", exec_str.c_str());
   return newcmd;
 }
 
-bool Procman::RemoveCommand(ProcmanCommandPtr cmd) {
+void Procman::RemoveCommand(ProcmanCommandPtr cmd) {
   CheckCommand(cmd);
 
-  // stop the command (if it's running)
-  if (cmd->Pid()) {
-    dbgt ("procman ERROR: refusing to remove running command %s\n",
-        cmd->ExecStr().c_str());
-    return false;
+  // Wait for the command to exit.
+  while(cmd->Pid()) {
+    usleep(1000);
+    CheckForStoppedCommands();
   }
 
-  CloseDeadPipes(cmd);
+  CleanupStoppedCommand(cmd);
 
   // remove
   commands_.erase(std::find(commands_.begin(), commands_.end(), cmd));
-  return true;
 }
 
 CommandStatus Procman::GetCommandStatus(ProcmanCommandPtr cmd) {
@@ -318,11 +271,6 @@ void Procman::SetCommandExecStr(ProcmanCommandPtr cmd,
     const std::string& exec_str) {
   CheckCommand(cmd);
   cmd->exec_str_ = exec_str;
-}
-
-void Procman::SetCommandId(ProcmanCommandPtr cmd, const std::string& cmd_id) {
-  CheckCommand(cmd);
-  cmd->cmd_id_ = cmd_id;
 }
 
 void Procman::CheckCommand(ProcmanCommandPtr cmd) {

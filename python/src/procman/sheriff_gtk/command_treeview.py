@@ -6,10 +6,11 @@ import procman.sheriff_gtk.command_model as cm
 import procman.sheriff_gtk.sheriff_dialogs as sd
 
 class SheriffCommandTreeView(gtk.TreeView):
-    def __init__(self, _sheriff, cmds_ts):
+    def __init__(self, _sheriff, _script_manager, cmds_ts):
         super(SheriffCommandTreeView, self).__init__(cmds_ts)
         self.cmds_ts = cmds_ts
         self.sheriff = _sheriff
+        self.script_manager = _script_manager
 
         cmds_tr = gtk.CellRendererText ()
         cmds_tr.set_property ("ellipsize", pango.ELLIPSIZE_END)
@@ -240,7 +241,7 @@ class SheriffCommandTreeView(gtk.TreeView):
             # enable/disable menu options based on sheriff state and user
             # selection
             can_add_load = not self.sheriff.is_observer () and\
-                    not self.sheriff.get_active_script()
+                    not self.script_mangaer.get_active_script()
             can_modify = pathinfo is not None and \
                     not self.sheriff.is_observer() and \
                     not self.sheriff.get_active_script()

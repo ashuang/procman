@@ -83,6 +83,7 @@ Timer::Timer(int interval_ms,
   timer_type_(timer_type),
   active_(false),
   callback_(callback),
+  deadline_(0),
   loop_(loop) {
   if (active) {
     Start();
@@ -216,7 +217,8 @@ void EventLoop::SetPosixSignals(const std::vector<int>& signums,
   posix_signal_notifier_ = AddSocket(g_signal_fds[0], kRead,
       [this, callback]() {
         int signum;
-        read(g_signal_fds[0], &signum, sizeof(int));
+        const int unused = read(g_signal_fds[0], &signum, sizeof(int));
+        (void) unused;
         callback(signum);
       });
 }
@@ -296,7 +298,7 @@ void EventLoop::IterateOnce() {
     }
     sockets_ready_.clear();
 
-    delete pfds;
+    delete[] pfds;
   } else if (first_timer) {
     // If there aren't any sockets to wait on, and there's at least one timer,
     // then wait for that timer.

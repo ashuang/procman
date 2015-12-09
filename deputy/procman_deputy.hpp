@@ -56,7 +56,7 @@ class ProcmanDeputy {
 
     void UpdateCpuTimes();
 
-    void CheckForDeadChildren();
+    void CheckForStoppedCommands();
 
     void TransmitProcessInfo();
 

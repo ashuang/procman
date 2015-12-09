@@ -75,10 +75,12 @@ static void dbgt (const char *fmt, ...) {
 struct DeputyCommand {
   ProcmanCommandPtr cmd;
 
+  std::string cmd_id;
+
   SocketNotifierPtr stdout_notifier;
 
   // Each time the command is started, it's assigned a runid. The main purpose
-  // of runid is to enable 
+  // of runid is to enable
   int32_t actual_runid;
 
   bool should_be_running;
@@ -137,7 +139,7 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options) :
   last_output_transmit_utime_(0),
   output_buf_size_(0),
   output_msg_() {
-  pm_ = new Procman(ProcmanOptions::Default());
+  pm_ = new Procman();
 
   // Initialize LCM
   lcm_ = new lcm::LCM(options.lcm_url);
@@ -178,6 +180,8 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options) :
 
   output_msg_.deputy_id = deputy_id_;
   output_msg_.num_commands = 0;
+
+  memset(cpu_time_, 0, sizeof(SystemInfo) * 2);
 }
 
 ProcmanDeputy::~ProcmanDeputy() {
@@ -190,6 +194,9 @@ ProcmanDeputy::~ProcmanDeputy() {
   }
   if(discovery_sub_) {
     lcm_->unsubscribe(discovery_sub_);
+  }
+  for (auto item : commands_) {
+    delete item.second;
   }
   delete lcm_;
   delete pm_;
@@ -255,21 +262,12 @@ void ProcmanDeputy::MaybePublishOutputMessage() {
 // invoked when a child process writes something to its stdout/stderr fd
 void ProcmanDeputy::OnProcessOutputAvailable(DeputyCommand* mi) {
   ProcmanCommandPtr cmd = mi->cmd;
-  int anycondition = 0;
-
   char buf[1024];
-  int bytes_read = read(cmd->StdoutFd(), buf, sizeof (buf)-1);
-  if (bytes_read < 0) {
-    snprintf (buf, sizeof (buf), "procman [%s] read: %s (%d)\n",
-        cmd->ExecStr().c_str(), strerror (errno), errno);
-    dbgt (buf);
-    TransmitStr(cmd->Id(), buf);
-  } else {
-    // TODO buffer output
+  const int bytes_read = read(cmd->StdoutFd(), buf, sizeof(buf) - 1);
+  if (bytes_read > 0) {
     buf[bytes_read] = '\0';
-    TransmitStr(cmd->Id(), buf);
+    TransmitStr(mi->cmd_id, buf);
   }
-  anycondition = 1;
 }
 
 void ProcmanDeputy::MaybeScheduleRespawn(DeputyCommand *mi) {
@@ -283,8 +281,9 @@ int ProcmanDeputy::StartCommand(DeputyCommand* mi, int desired_runid) {
   if(exiting_) {
     return -1;
   }
-
   ProcmanCommandPtr cmd = mi->cmd;
+
+  dbgt("[%s] start\n", mi->cmd_id.c_str());
 
   int status;
   mi->should_be_running = true;
@@ -303,15 +302,7 @@ int ProcmanDeputy::StartCommand(DeputyCommand* mi, int desired_runid) {
   }
   mi->last_start_time = timestamp_now();
 
-  status = pm_->StartCommand(cmd);
-  if (0 != status) {
-    PrintfAndTransmit("", "[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
-    dbgt ("[%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
-    MaybeScheduleRespawn(mi);
-    PrintfAndTransmit(cmd->Id(),
-        "ERROR!  [%s] couldn't start [%s]\n", cmd->Id().c_str(), cmd->ExecStr().c_str());
-    return -1;
-  }
+  pm_->StartCommand(cmd);
 
   fcntl(cmd->StdoutFd(), F_SETFL, O_NONBLOCK);
   mi->stdout_notifier = event_loop_.AddSocket(cmd->StdoutFd(),
@@ -338,27 +329,28 @@ int ProcmanDeputy::StopCommand(DeputyCommand* mi) {
   int64_t sigkill_time = mi->first_kill_time + (int64_t)(mi->stop_time_allowed * 1000000);
   int status;
   if(!mi->first_kill_time) {
-    status = pm_->KillCommmand(cmd, mi->stop_signal);
+    dbgt("[%s] stop (signal %d)\n", mi->cmd_id.c_str(), mi->stop_signal);
+    status = pm_->KillCommand(cmd, mi->stop_signal);
     mi->first_kill_time = now;
     mi->num_kills_sent++;
   } else if(now > sigkill_time) {
-    status = pm_->KillCommmand(cmd, SIGKILL);
+    dbgt("[%s] stop (signal %d)\n", mi->cmd_id.c_str(), SIGKILL);
+    status = pm_->KillCommand(cmd, SIGKILL);
   } else {
     return 0;
   }
 
   if (0 != status) {
-    PrintfAndTransmit(cmd->Id(),
+    PrintfAndTransmit(mi->cmd_id,
         "kill: %s\n", strerror (-status));
   }
   return status;
 }
 
-void ProcmanDeputy::CheckForDeadChildren() {
-  ProcmanCommandPtr cmd = pm_->CheckForDeadChildren();
+void ProcmanDeputy::CheckForStoppedCommands() {
+  ProcmanCommandPtr cmd = pm_->CheckForStoppedCommands();
 
   while (cmd) {
-    int status;
     DeputyCommand *mi = commands_[cmd];
 
     // check the stdout pipes to see if there is anything from stdout /
@@ -368,32 +360,44 @@ void ProcmanDeputy::CheckForDeadChildren() {
       POLLIN,
       0
     };
-    status = poll (&pfd, 1, 0);
+    const int poll_status = poll(&pfd, 1, 0);
     if (pfd.revents & POLLIN) {
       OnProcessOutputAvailable(mi);
     }
 
     // did the child terminate with a signal?
-    int exit_status = cmd->ExitStatus();
+    const int exit_status = cmd->ExitStatus();
+
+    if (WIFSIGNALED (exit_status)) {
+      const int signum = WTERMSIG (exit_status);
+      dbgt("[%s] terminated by signal %d (%s)\n",
+          mi->cmd_id.c_str(), signum, strsignal (signum));
+    } else if (exit_status != 0) {
+      dbgt("[%s] exited with status %d\n",
+          mi->cmd_id.c_str(), WEXITSTATUS (exit_status));
+    } else {
+      dbgt("[%s] exited\n", mi->cmd_id.c_str());
+    }
+
     if (WIFSIGNALED (exit_status)) {
       int signum = WTERMSIG (exit_status);
 
-      PrintfAndTransmit(cmd->Id(),
+      PrintfAndTransmit(mi->cmd_id,
           "%s\n",
           strsignal (signum), signum);
       if (WCOREDUMP (exit_status)) {
-        PrintfAndTransmit(cmd->Id(), "Core dumped.\n");
+        PrintfAndTransmit(mi->cmd_id, "Core dumped.\n");
       }
     }
 
     if (mi->stdout_notifier) {
       mi->stdout_notifier.reset();
-      pm_->CloseDeadPipes(cmd);
+      pm_->CleanupStoppedCommand(cmd);
     }
 
     // remove ?
     if (mi->remove_requested) {
-      dbgt ("[%s] remove\n", cmd->Id().c_str());
+      dbgt ("[%s] remove\n", mi->cmd_id.c_str());
       // cleanup the private data structure used
       commands_.erase(cmd);
       pm_->RemoveCommand(cmd);
@@ -402,7 +406,7 @@ void ProcmanDeputy::CheckForDeadChildren() {
       MaybeScheduleRespawn(mi);
     }
 
-    cmd = pm_->CheckForDeadChildren();
+    cmd = pm_->CheckForStoppedCommands();
     TransmitProcessInfo();
   }
 }
@@ -412,7 +416,8 @@ void ProcmanDeputy::OnQuitTimer() {
     DeputyCommand* mi = item.second;
     ProcmanCommandPtr cmd = item.first;
     if (cmd->Pid()) {
-      pm_->KillCommmand(cmd, SIGKILL);
+      dbgt("[%s] stop (signal %d)\n", mi->cmd_id.c_str(), SIGKILL);
+      pm_->KillCommand(cmd, SIGKILL);
     }
     commands_.erase(cmd);
     pm_->RemoveCommand(cmd);
@@ -443,7 +448,7 @@ void ProcmanDeputy::TransmitProcessInfo() {
     DeputyCommand* mi = item.second;
 
     msg.cmds[cmd_index].cmd.exec_str = cmd->ExecStr();
-    msg.cmds[cmd_index].cmd.command_id = cmd->Id();
+    msg.cmds[cmd_index].cmd.command_id = mi->cmd_id;
     msg.cmds[cmd_index].cmd.group = mi->group;
     msg.cmds[cmd_index].cmd.auto_respawn = mi->auto_respawn;
     msg.cmds[cmd_index].cmd.stop_signal = mi->stop_signal;
@@ -464,9 +469,8 @@ void ProcmanDeputy::TransmitProcessInfo() {
 }
 
 void ProcmanDeputy::UpdateCpuTimes() {
-  int status = ReadSystemInfo(&cpu_time_[1]);
-  if(0 != status) {
-    perror("update_cpu_times - procinfo_read_sys_cpu_mem");
+  if(! ReadSystemInfo(&cpu_time_[1])) {
+    return;
   }
 
   SystemInfo *a = &cpu_time_[1];
@@ -490,8 +494,7 @@ void ProcmanDeputy::UpdateCpuTimes() {
     DeputyCommand* mi = item.second;
 
     if (cmd->Pid()) {
-      status = ReadProcessInfo(cmd->Pid(), &mi->cpu_time[1]);
-      if (0 != status) {
+      if (! ReadProcessInfo(cmd->Pid(), &mi->cpu_time[1])) {
         mi->cpu_usage = 0;
         mi->cpu_time[1].vsize = 0;
         mi->cpu_time[1].rss = 0;
@@ -517,10 +520,10 @@ void ProcmanDeputy::UpdateCpuTimes() {
       mi->cpu_time[1].rss = 0;
     }
 
-    memcpy (&mi->cpu_time[0], &mi->cpu_time[1], sizeof (ProcessInfo));
+    mi->cpu_time[0] = mi->cpu_time[1];
   }
 
-  memcpy (&cpu_time_[0], &cpu_time_[1], sizeof (SystemInfo));
+  cpu_time_[0] = cpu_time_[1];
 }
 
 void ProcmanDeputy::OnOneSecondTimer() {
@@ -555,7 +558,7 @@ void ProcmanDeputy::OnPosixSignal(int signum) {
   if (signum == SIGCHLD) {
     // a child process died.  check to see which one, and cleanup its
     // remains.
-    CheckForDeadChildren();
+    CheckForStoppedCommands();
   } else {
     // quit was requested.  kill all processes and quit
     dbgt ("received signal %d (%s).  stopping all processes\n", signum,
@@ -630,12 +633,6 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
     return;
   }
 
-  // update variables
-  pm_->RemoveAllVariables();
-  //    for(int varind=0; varind<orders->nvars; varind++) {
-  //        procman_set_variable(pm_, orders->varnames[varind], orders->varvals[varind]);
-  //    }
-
   // attempt to carry out the orders
   int action_taken = 0;
   int i;
@@ -652,7 +649,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
     // do we already have this command somewhere?
     DeputyCommand *mi = nullptr;
     for (auto& item : commands_) {
-      if (item.first->Id() == cmd_msg->cmd.command_id) {
+      if (item.second->cmd_id == cmd_msg->cmd.command_id) {
         mi = item.second;
         break;
       }
@@ -663,13 +660,11 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
       cmd = mi->cmd;
     } else {
       // if not, then create it.
-      if (options_.verbose) {
-        dbgt ("adding new process (%s)\n", cmd_msg->cmd.exec_str.c_str());
-      }
-      cmd = pm_->AddCommand(cmd_msg->cmd.exec_str, cmd_msg->cmd.command_id);
+      cmd = pm_->AddCommand(cmd_msg->cmd.exec_str);
 
       // allocate a private data structure
       mi = new DeputyCommand();
+      mi->cmd_id = cmd_msg->cmd.command_id;
       mi->group = cmd_msg->cmd.group;
       mi->auto_respawn = cmd_msg->cmd.auto_respawn;
       mi->stop_signal = cmd_msg->cmd.stop_signal;
@@ -680,7 +675,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
 
       mi->respawn_timer = event_loop_.AddTimer(MIN_RESPAWN_DELAY_MS,
           EventLoop::kSingleShot, false,
-          [this, mi]() { 
+          [this, mi]() {
           if(mi->auto_respawn && mi->should_be_running && !exiting_) {
             StartCommand(mi, mi->actual_runid);
           }
@@ -689,6 +684,9 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
       mi->cmd = cmd;
       commands_[cmd] = mi;
       action_taken = 1;
+
+      dbgt("[%s] new command [%s]\n", mi->cmd_id.c_str(),
+          cmd->ExecStr().c_str());
     }
 
     // check if the command needs to be started or stopped
@@ -697,31 +695,23 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
     // rename a command?  does not kill a running command, so effect does
     // not apply until command is restarted.
     if (cmd->ExecStr() != cmd_msg->cmd.exec_str) {
-      dbgt ("[%s] exec str -> [%s]\n", cmd->Id().c_str(),
+      dbgt ("[%s] exec str -> [%s]\n", mi->cmd_id.c_str(),
           cmd_msg->cmd.exec_str.c_str());
       pm_->SetCommandExecStr(cmd, cmd_msg->cmd.exec_str);
 
       action_taken = 1;
     }
 
-    // change a command's id?
-    if (cmd_msg->cmd.command_id != cmd->Id()) {
-      dbgt ("[%s] rename -> [%s]\n", cmd->Id().c_str(),
-          cmd_msg->cmd.command_id.c_str());
-      pm_->SetCommandId(cmd, cmd_msg->cmd.command_id);
-      action_taken = 1;
-    }
-
     // has auto-respawn changed?
     if (cmd_msg->cmd.auto_respawn != mi->auto_respawn) {
-      dbgt ("[%s] auto-respawn -> %d\n", cmd->Id().c_str(),
+      dbgt ("[%s] auto-respawn -> %d\n", mi->cmd_id.c_str(),
           cmd_msg->cmd.auto_respawn);
       mi->auto_respawn = cmd_msg->cmd.auto_respawn;
     }
 
     // change the group of a command?
     if (cmd_msg->cmd.group != mi->group) {
-      dbgt ("[%s] group -> [%s]\n", cmd->Id().c_str(),
+      dbgt ("[%s] group -> [%s]\n", mi->cmd_id.c_str(),
           cmd_msg->cmd.group.c_str());
       mi->group = cmd_msg->cmd.group;
       action_taken = 1;
@@ -729,14 +719,14 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
 
     // change the stop signal of a command?
     if(mi->stop_signal != cmd_msg->cmd.stop_signal) {
-      dbg("[%s] stop signal -> [%d]\n", cmd->Id().c_str(),
+      dbg("[%s] stop signal -> [%d]\n", mi->cmd_id.c_str(),
           cmd_msg->cmd.stop_signal);
       mi->stop_signal = cmd_msg->cmd.stop_signal;
     }
 
     // change the stop time allowed of a command?
     if(mi->stop_time_allowed != cmd_msg->cmd.stop_time_allowed) {
-      dbg("[%s] stop time allowed -> [%f]\n", cmd->Id().c_str(),
+      dbg("[%s] stop time allowed -> [%f]\n", mi->cmd_id.c_str(),
           cmd_msg->cmd.stop_time_allowed);
       mi->stop_time_allowed = cmd_msg->cmd.stop_time_allowed;
     }
@@ -764,7 +754,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
   for (auto& item : commands_) {
     DeputyCommand* mi = item.second;
     ProcmanCommandPtr cmd = item.first;
-    const cmd_desired_t *cmd_msg = OrdersFindCmd (orders, cmd->Id());
+    const cmd_desired_t *cmd_msg = OrdersFindCmd (orders, mi->cmd_id);
 
     if (! cmd_msg) {
       // push the orphaned command into a list first.  remove later, to
@@ -779,11 +769,11 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
     ProcmanCommandPtr cmd = mi->cmd;
 
     if (cmd->Pid()) {
-      dbgt ("[%s] scheduling removal\n", cmd->Id().c_str());
+      dbgt ("[%s] scheduling removal\n", mi->cmd_id.c_str());
       mi->remove_requested = 1;
       StopCommand(mi);
     } else {
-      dbgt ("[%s] remove\n", cmd->Id().c_str());
+      dbgt ("[%s] remove\n", mi->cmd_id.c_str());
       // cleanup the private data structure used
       commands_.erase(cmd);
       pm_->RemoveCommand(cmd);
@@ -886,14 +876,14 @@ static void usage() {
 using namespace procman;
 
 int main (int argc, char **argv) {
-  const char *optstring = "hvfl:n:u:";
+  const char *optstring = "hvfl:i:u:";
   int c;
   struct option long_opts[] = {
     { "help", no_argument, 0, 'h' },
     { "verbose", no_argument, 0, 'v' },
     { "log", required_argument, 0, 'l' },
     { "lcmurl", required_argument, 0, 'u' },
-    { "name", required_argument, 0, 'n' },
+    { "id", required_argument, 0, 'i' },
     { 0, 0, 0, 0 }
   };
 
@@ -913,7 +903,7 @@ int main (int argc, char **argv) {
       case 'u':
         dep_options.lcm_url = optarg;
         break;
-      case 'n':
+      case 'i':
         deputy_id_override = optarg;
         break;
       case 'h':
