@@ -21,5 +21,5 @@ lcmtypes_build(INCLUDE_BUILD_PATH ${INCLUDE_OUTPUT_PATH}
                lcmtypes/procman_lcm_output_t.lcm
                lcmtypes/procman_lcm_cmd_desired_t.lcm)
 
-add_subdirectory(deputy)
+add_subdirectory(src)
 add_subdirectory(python)

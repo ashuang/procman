@@ -7,6 +7,8 @@
 #include <vector>
 #include <map>
 
+#include <procman/procinfo.hpp>
+
 namespace procman {
 
 enum CommandStatus {

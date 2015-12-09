@@ -12,8 +12,7 @@
 #include <lcmtypes/procman_lcm/output_t.hpp>
 
 #include "event_loop.hpp"
-#include "procman.hpp"
-#include "procinfo.hpp"
+#include "procman/procman.hpp"
 
 namespace procman {
 

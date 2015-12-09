@@ -241,10 +241,10 @@ class SheriffCommandTreeView(gtk.TreeView):
             # enable/disable menu options based on sheriff state and user
             # selection
             can_add_load = not self.sheriff.is_observer () and\
-                    not self.script_mangaer.get_active_script()
+                    not self.script_manager.get_active_script()
             can_modify = pathinfo is not None and \
                     not self.sheriff.is_observer() and \
-                    not self.sheriff.get_active_script()
+                    not self.script_manager.get_active_script()
 
             self.start_cmd_ctxt_mi.set_sensitive (can_modify)
             self.stop_cmd_ctxt_mi.set_sensitive (can_modify)

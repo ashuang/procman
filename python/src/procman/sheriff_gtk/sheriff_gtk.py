@@ -569,7 +569,7 @@ class SheriffGtk(SheriffListener):
     def on_spawn_deputy_mi_activate(self, *args):
         print("Spawn deputy!")
         self._terminate_spawned_deputy()
-        args = [ self.procman_deputy_cmd, "-n", "localhost" ]
+        args = [ self.procman_deputy_cmd, "-i", "localhost" ]
         self.spawned_deputy = subprocess.Popen(args)
         # TODO disable
         self.spawn_deputy_mi.set_sensitive(False)
