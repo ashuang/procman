@@ -147,6 +147,7 @@ function(lcmtypes_build_c)
       list(APPEND _output_h_files ${_h_file_output})
     endforeach()
     add_custom_target(${PROJECT_NAME}_lcmgen_output_h_files ALL DEPENDS ${_output_h_files})
+    add_dependencies(${libname} ${PROJECT_NAME}_lcmgen_output_h_files)
 
     #    add_library("${libname}-static" STATIC ${_lcmtypes_c_files})
     #    set_source_files_properties(${_lcmtypes_c_files} PROPERTIES COMPILE_FLAGS "-I${CMAKE_CURRENT_BINARY_DIR}/lcmtypes/c")
