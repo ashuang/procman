@@ -132,7 +132,7 @@ class VariableExpander {
       const char* valid_start = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
       const char* valid_follow = "1234567890";
       return (strchr(valid_start, c) != NULL ||
-          ((0 == pos) && (strchr(valid_follow, c) != NULL)));
+          ((pos > 0) && (strchr(valid_follow, c) != NULL)));
     }
 
     const std::string& input_;
