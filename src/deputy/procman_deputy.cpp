@@ -327,24 +327,24 @@ int ProcmanDeputy::StopCommand(DeputyCommand* mi) {
 
   int64_t now = timestamp_now();
   int64_t sigkill_time = mi->first_kill_time + (int64_t)(mi->stop_time_allowed * 1000000);
-  int status;
+  bool okay;
   if(!mi->first_kill_time) {
     dbgt("[%s] stop (signal %d)\n", mi->cmd_id.c_str(), mi->stop_signal);
-    status = pm_->KillCommand(cmd, mi->stop_signal);
+    okay = pm_->KillCommand(cmd, mi->stop_signal);
     mi->first_kill_time = now;
     mi->num_kills_sent++;
   } else if(now > sigkill_time) {
     dbgt("[%s] stop (signal %d)\n", mi->cmd_id.c_str(), SIGKILL);
-    status = pm_->KillCommand(cmd, SIGKILL);
+    okay = pm_->KillCommand(cmd, SIGKILL);
   } else {
     return 0;
   }
 
-  if (0 != status) {
-    PrintfAndTransmit(mi->cmd_id,
-        "kill: %s\n", strerror (-status));
+  if (!okay) {
+    PrintfAndTransmit(mi->cmd_id, "failed to send kill signal to command\n");
+    return 1;
   }
-  return status;
+  return 0;
 }
 
 void ProcmanDeputy::CheckForStoppedCommands() {
