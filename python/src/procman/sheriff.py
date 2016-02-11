@@ -1130,8 +1130,8 @@ class Sheriff(object):
                 now = time.time()
                 if now > next_send and not self._is_observer:
                     self._send_orders()
-                next_send = min(time.time() + send_interval,
-                        next_send + send_interval)
+                    next_send = min(time.time() + send_interval,
+                            next_send + send_interval)
 
             # Emit any queued up signals
             for func, listener in to_call:
