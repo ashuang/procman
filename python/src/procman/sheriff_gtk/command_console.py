@@ -61,6 +61,9 @@ class SheriffCommandConsole(gtk.ScrolledWindow, SheriffListener):
         stdout_adj.connect ("changed", self.on_adj_changed)
         stdout_adj.connect ("value-changed", self.on_adj_value_changed)
 
+        # deal with keyboard shortcuts
+        self.connect("key-release-event", self.on_key_release)
+
         # add callback so we can add a clear option to the default right click popup
         self.stdout_textview.connect ("populate-popup", self.on_tb_populate_menu)
 
@@ -217,6 +220,27 @@ class SheriffCommandConsole(gtk.ScrolledWindow, SheriffListener):
         start_iter = tb.get_start_iter ()
         end_iter = tb.get_end_iter ()
         tb.delete (start_iter, end_iter)
+
+    def _tb_copy_selection(self):
+        tb = self.stdout_textview.get_buffer()
+        bounds = tb.get_selection_bounds()
+
+        if bounds:
+            text = tb.get_text(bounds[0], bounds[1])
+            clipboard = gtk.Clipboard()
+            clipboard.set_text(text)
+            clipboard.store()
+
+    def on_key_release(self, widget, event):
+        key_value = event.keyval
+        key_name = gtk.gdk.keyval_name(key_value)
+        state = event.state
+        ctrl = (state & gtk.gdk.CONTROL_MASK)
+        if ctrl and key_name == 'c':
+            self._tb_copy_selection()
+            return True
+        else:
+            return False
 
     def set_output_rate_limit(self, max_kb_per_sec):
         self.max_kb_per_sec = max_kb_per_sec
