@@ -289,7 +289,7 @@ void EventLoop::IterateOnce() {
       }
     }
     // Call callbacks for sockets that are ready
-    for (int index = 0; index < num_sockets_ready; ++index) {
+    for (int index = 0; index < sockets_ready_.size(); ++index) {
       SocketNotifier* notifier = sockets_ready_[index];
       if (!notifier) {
         continue;
