@@ -1129,7 +1129,7 @@ class Sheriff(object):
 
                 now = time.time()
                 if now > next_send:
-                    if not self._is_observer
+                    if not self._is_observer:
                         self._send_orders()
                     next_send = min(time.time() + send_interval,
                             next_send + send_interval)
