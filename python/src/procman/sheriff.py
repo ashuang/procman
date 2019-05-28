@@ -175,6 +175,15 @@ class Command(object):
         self._mem_rss_bytes = cmd_msg.mem_rss_bytes
         self._updated_from_info = True
 
+        # This conditional triggers when the sheriff just started up and loaded
+        # a config file, and a deputy already had a running process. In that
+        # case, pickup the desired_runid from the deputy instead of forcing the
+        # deputy to restart the running process.
+        if self._desired_runid == 0 and \
+                self._actual_runid != 0 and \
+                not self._force_quit:
+            self._desired_runid = self._actual_runid
+
         # if the command has run to completion and we don't need it to respawn,
         # then prevent it from respawning if the deputy restarts
         if self._pid == 0 and \

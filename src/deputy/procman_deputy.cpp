@@ -672,6 +672,7 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
       mi->last_start_time = 0;
       mi->respawn_backoff_ms = MIN_RESPAWN_DELAY_MS;
       mi->stdout_notifier.reset();
+      mi->actual_runid = 0;
 
       mi->respawn_timer = event_loop_.AddTimer(MIN_RESPAWN_DELAY_MS,
           EventLoop::kSingleShot, false,
@@ -740,10 +741,11 @@ void ProcmanDeputy::OrdersReceived(const lcm::ReceiveBuffer* rbuf,
       action_taken = 1;
     } else if (PROCMAN_CMD_RUNNING == cmd_status &&
         ((!mi->should_be_running) ||
-         (cmd_msg->desired_runid != mi->actual_runid))) {
+         (cmd_msg->desired_runid != mi->actual_runid &&
+          cmd_msg->desired_runid != 0))) {
       StopCommand(mi);
       action_taken = 1;
-    } else {
+    } else if (cmd_msg->desired_runid != 0) {
       mi->actual_runid = cmd_msg->desired_runid;
     }
   }
