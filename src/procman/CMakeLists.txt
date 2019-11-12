@@ -1,5 +1,3 @@
-set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
-
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   set(procinfo_cpp procinfo_linux.cpp)
 else()
