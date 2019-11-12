@@ -1,5 +1,9 @@
 *.pyc
 *.swp
 
-/build
+# build directories
+build
+pod-build
+
+# doxygen output
 /doc/html
