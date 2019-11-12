@@ -39,7 +39,34 @@ computers. There are several ways to use procman:
   Procman also provides a C++ API for spawning and managing child processes,
   comparable to the Python subprocess module.
 
-## Documentation
+## Build Instructions
+
+### Dependencies
+
+ * [LCM](http://lcm-proj.github.io)
+ * Python
+ * PyGTK  (procman-sheriff is written in Python with PyGTK)
+
+Currently only tested on GNU/Linux.  Some stuff will definitely only work on
+Linux (e.g., the process memory, CPU statistics).
+
+### Local Install
+
+After cloning procman, create and move a build directory 
+
+```sh
+mkdir build
+cd build
+```
+
+Now run cmake (optionally use `-DCMAKE_INSTALL_PREFIX` to change the local install directory from `/usr/local` to a different directory):
+
+```sh
+cmake ..
+make
+```
+
+### Documentation
 
   Documentation is built with Doxygen.
 
@@ -48,11 +75,4 @@ computers. There are several ways to use procman:
   doxygen
   ```
 
-## Requirements
 
-- LCM  (http://lcm.googlecode.com)
-- Python
-- PyGTK  (procman-sheriff is written in Python with PyGTK)
-
-Currently only tested on GNU/Linux.  Some stuff will definitely only work on
-Linux (e.g., the process memory, CPU statistics).
