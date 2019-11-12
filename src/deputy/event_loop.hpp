@@ -4,6 +4,7 @@
 #include <memory>
 #include <set>
 #include <vector>
+#include <functional>
 
 namespace procman {
 
