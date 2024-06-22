@@ -66,10 +66,10 @@ class SheriffHeadless(ScriptListener):
     def _start_script(self):
         if not self.script:
             return False
-        print("Running script %s" % self.script_name)
+        print(("Running script %s" % self.script_name))
         errors = self.script_manager.execute_script(self.script)
         if errors:
-            print("Script failed to run.  Errors detected:\n" + "\n".join(errors))
+            print(("Script failed to run.  Errors detected:\n" + "\n".join(errors)))
             self._shutdown()
             sys.exit(1)
         return False
@@ -106,13 +106,13 @@ class SheriffHeadless(ScriptListener):
         if self.script_name:
             self.script = self.script_manager.get_script(self.script_name)
             if not self.script:
-                print "No such script: %s" % self.script_name
+                print("No such script: %s" % self.script_name)
                 self._shutdown()
                 sys.exit(1)
             errors = self.script_manager.check_script_for_errors(self.script)
             if errors:
-                print "Unable to run script.  Errors were detected:\n\n"
-                print "\n    ".join(errors)
+                print("Unable to run script.  Errors were detected:\n\n")
+                print("\n    ".join(errors))
                 self._shutdown()
                 sys.exit(1)
 
@@ -204,19 +204,19 @@ def main():
     if len(args) > 0:
         try:
             cfg = sheriff.load_config_file(file(args[0]))
-        except Exception, xcp:
-            print "Unable to load config file."
-            print xcp
+        except Exception as xcp:
+            print("Unable to load config file.")
+            print(xcp)
             sys.exit(1)
     if len(args) > 1:
         script_name = args[1]
 
     if observer:
         if cfg:
-            print "Loading a config file is not allowed when starting in observer mode."
+            print("Loading a config file is not allowed when starting in observer mode.")
             sys.exit(1)
         if spawn_deputy:
-            print "Lone ranger mode and observer mode are mutually exclusive."
+            print("Lone ranger mode and observer mode are mutually exclusive.")
             sys.exit(1)
 
     lcm_obj = LCM()

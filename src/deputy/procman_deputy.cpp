@@ -144,7 +144,7 @@ ProcmanDeputy::ProcmanDeputy(const DeputyOptions& options) :
   // Initialize LCM
   lcm_ = new lcm::LCM(options.lcm_url);
   if (!lcm_) {
-    throw std::runtime_error("error initializing LCM.");
+    // throw std::runtime_error("error initializing LCM.");
   }
 
   // Setup initial LCM subscriptions

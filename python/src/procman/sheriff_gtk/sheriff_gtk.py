@@ -1,24 +1,26 @@
 #!/usr/bin/env python
 
+import argparse
 import os
+import pickle
+import signal
+import subprocess
 import sys
 import time
 import traceback
-import getopt
-import subprocess
-import signal
-import pickle
 
-import glib
-import gobject
-import gtk
-import pango
+import gi
 
 from lcm import LCM
 
+gi.require_version("Gtk", "3.0")
+from gi.repository import GLib
+from gi.repository import GObject
+from gi.repository import Gtk
+
 import procman.sheriff as sheriff
 from procman.sheriff import Sheriff, SheriffListener
-from procman.sheriff_cli import SheriffHeadless, find_procman_deputy_cmd
+from procman.sheriff_cli import SheriffHeadless
 from procman.sheriff_script import ScriptManager
 import procman.sheriff_config as sheriff_config
 
@@ -28,14 +30,18 @@ import procman.sheriff_gtk.sheriff_dialogs as sd
 import procman.sheriff_gtk.command_console as cc
 import procman.sheriff_gtk.deputies_treeview as ht
 
+from procman.sheriff_cli import SheriffHeadless, find_procman_deputy_cmd
+
 try:
     from procman.build_prefix import BUILD_PREFIX
 except ImportError:
     BUILD_PREFIX = None
 
+
 def _dbg(text):
-#    return
-    sys.stderr.write("%s\n" % text)
+    #    return
+    sys.stderr.write("{}\n".format(text))
+
 
 def find_procman_glade():
     search_path = []
@@ -53,14 +59,31 @@ def find_procman_glade():
         sys.stderr.write("    %s\n" % spath)
     sys.exit(1)
 
+def find_icon():
+    search_path = []
+    if BUILD_PREFIX:
+        search_path.append(os.path.join(BUILD_PREFIX, "share", "procman"))
+    search_path.append("/usr/local/share/icons/hicolor/scalable/apps/")
+    for spath in search_path:
+        fname = os.path.join(spath, "procman_icon.svg")
+        if os.path.isfile(fname):
+            return fname
+    sys.stderr.write("Warning: Unable to find procman_icon.svg\n")
+    sys.stderr.write("Locations checked:\n")
+    for spath in search_path:
+        sys.stderr.write("    %s\n" % spath)
+    return None
+    
+
 def split_script_name(name):
     name = name.strip("/")
     while name.find("//") >= 0:
         name = name.replace("//", "/")
     return name.split("/")
 
+
 class SheriffGtk(SheriffListener):
-    def __init__ (self, lcm_obj):
+    def __init__(self, lcm_obj):
         self.lcm_obj = lcm_obj
         self.cmds_update_scheduled = False
         self.config_filename = None
@@ -70,32 +93,27 @@ class SheriffGtk(SheriffListener):
         self.spawned_deputy = None
 
         # create sheriff and subscribe to events
-        self.sheriff = Sheriff (self.lcm_obj)
+        self.sheriff = Sheriff(self.lcm_obj)
         self.sheriff.add_listener(self)
 
         self.script_manager = ScriptManager(self.sheriff)
         self.script_manager.add_listener(self)
 
-        # update very soon
-        gobject.timeout_add(100, lambda *s: self.deputies_ts.update() and False)
-        gobject.timeout_add(100, lambda *s: self._schedule_cmds_update() and False)
-
-        # and then periodically
-        gobject.timeout_add (1000, self._check_spawned_deputy)
-        gobject.timeout_add (1000,
-                lambda *s: self._schedule_cmds_update () or True)
-
         # setup GUI
 
-        self.builder = gtk.Builder()
+        self.builder = Gtk.Builder()
         self.builder.add_from_file(find_procman_glade())
         self.builder.connect_signals(self)
 
         self.window = self.builder.get_object("main_window")
+        icon = find_icon()
+        if icon is not None:
+            self.window.set_icon_from_file(icon)
 
         self.cmds_ts = cm.SheriffCommandModel(self.sheriff)
-        self.cmds_tv = ctv.SheriffCommandTreeView(self.sheriff, self.script_manager,
-                self.cmds_ts)
+        self.cmds_tv = ctv.SheriffCommandTreeView(
+            self.sheriff, self.script_manager, self.cmds_ts
+        )
 
         # load save menu
         self.load_cfg_mi = self.builder.get_object("load_cfg_mi")
@@ -104,18 +122,19 @@ class SheriffGtk(SheriffListener):
         self.save_dlg = None
         self.load_save_dir = None
         self.cfg_to_load = None
-        if BUILD_PREFIX and os.path.exists("%s/data/procman" % BUILD_PREFIX):
-            self.load_save_dir = "%s/data/procman" % BUILD_PREFIX
 
         # options menu
         self.is_observer_cmi = self.builder.get_object("is_observer_cmi")
         self.spawn_deputy_mi = self.builder.get_object("spawn_deputy_mi")
-        self.terminate_spawned_deputy_mi = self.builder.get_object("terminate_spawned_deputy_mi")
+        self.terminate_spawned_deputy_mi = self.builder.get_object(
+            "terminate_spawned_deputy_mi"
+        )
 
         self.procman_deputy_cmd = find_procman_deputy_cmd()
         if not self.procman_deputy_cmd:
             sys.stderr.write("Can't find procman-deputy.  Spawn Deputy disabled")
             self.spawn_deputy_mi.set_sensitive(False)
+
 
         # commands menu
         self.start_cmd_mi = self.builder.get_object("start_cmd_mi")
@@ -135,33 +154,38 @@ class SheriffGtk(SheriffListener):
 
         vpane = self.builder.get_object("vpaned")
 
-        sw = gtk.ScrolledWindow()
-        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         hpane = self.builder.get_object("hpaned")
-        hpane.pack1(sw, resize = True)
+        hpane.pack1(sw, resize=True)
         sw.add(self.cmds_tv)
 
         cmds_sel = self.cmds_tv.get_selection()
-        cmds_sel.connect ("changed", self._on_cmds_selection_changed)
+        cmds_sel.connect("changed", self._on_cmds_selection_changed)
 
         # create a checkable item in the View menu for each column to toggle
         # its visibility in the treeview
         view_menu = self.builder.get_object("view_menu")
         for col in self.cmds_tv.get_columns():
-            name = col.get_title ()
-            col_cmi = gtk.CheckMenuItem(name)
+            name = col.get_title()
+            col_cmi = Gtk.CheckMenuItem(name)
             col_cmi.set_active(col.get_visible())
+
             def on_activate(cmi, col_):
                 should_be_visible = cmi.get_active()
                 if col_.get_visible() != should_be_visible:
                     col_.set_visible(should_be_visible)
                     if col_ == self.cmds_tv.columns[0]:
-                        self.cmds_ts.set_populate_exec_with_group_name(not should_be_visible)
+                        self.cmds_ts.set_populate_exec_with_group_name(
+                            not should_be_visible
+                        )
                         self.cmds_ts.repopulate()
+
             def on_visibility_changed(col_, param, cmi_):
                 is_visible = col_.get_visible()
                 if is_visible != cmi_.get_active():
                     cmi_.set_active(is_visible)
+
             col_cmi.connect("activate", on_activate, col)
             col.connect("notify::visible", on_visibility_changed, col_cmi)
             view_menu.append(col_cmi)
@@ -169,12 +193,12 @@ class SheriffGtk(SheriffListener):
         # setup the deputies treeview
         self.deputies_ts = ht.DeputyModel(self.sheriff)
         self.deputies_tv = ht.DeputyTreeView(self.sheriff, self.deputies_ts)
-        sw = gtk.ScrolledWindow ()
-        sw.set_policy (gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
-        hpane.pack2 (sw, resize = False)
-        sw.add (self.deputies_tv)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        hpane.pack2(sw, resize=False)
+        sw.add(self.deputies_tv)
 
-        gobject.timeout_add (1000, lambda *s: self.deputies_ts.update() or True)
+        GObject.timeout_add(1000, lambda *_: self.deputies_ts.update() or True)
 
         # stdout textview
         self.cmd_console = cc.SheriffCommandConsole(self.sheriff, self.lcm_obj)
@@ -186,7 +210,7 @@ class SheriffGtk(SheriffListener):
         self.statusbar_context_main = self.statusbar.get_context_id("main")
         self.statusbar_context_script_msg = None
 
-        config_dir = os.path.join(glib.get_user_config_dir(), "procman-sheriff")
+        config_dir = os.path.join(GLib.get_user_config_dir(), "procman-sheriff")
         if not os.path.exists(config_dir):
             os.makedirs(config_dir)
         self.config_fname = os.path.join(config_dir, "config")
@@ -194,13 +218,20 @@ class SheriffGtk(SheriffListener):
 
         self.window.show_all()
 
+        # update very soon
+        # Update information about deputies
+        GObject.timeout_add(100, lambda *_: self.deputies_ts.update() and False)
+        GObject.timeout_add(100, lambda *_: self._schedule_cmds_update() and False)
+
+        # and then periodically
+        GObject.timeout_add(1000, self._check_spawned_deputy)
+        GObject.timeout_add(1000, lambda *_: self._schedule_cmds_update() or True)
+
     def command_added(self, deputy_obj, cmd_obj):
         self._schedule_cmds_update()
 
     def command_removed(self, deputy_obj, cmd_obj):
         self._schedule_cmds_update()
-        if self.cfg_to_load and not self.sheriff.get_all_commands():
-            glib.idle_add(self._do_load_config)
 
     def command_status_changed(self, cmd_obj, old_status, new_status):
         self._schedule_cmds_update()
@@ -209,23 +240,26 @@ class SheriffGtk(SheriffListener):
         self._schedule_cmds_update()
 
     def script_added(self, script_object):
-        glib.idle_add(self._gtk_on_script_added, script_object)
+        GLib.idle_add(self._gtk_on_script_added, script_object)
 
     def sheriff_conflict_detected(self, other_sheriff_id):
-        glib.idle_add(self._gtk_sheriff_conflict_detected)
+        GLib.idle_add(self._gtk_sheriff_conflict_detected)
 
     def _gtk_sheriff_conflict_detected(self):
         # detected the presence of another sheriff that is not this one.
         # self-demote to prevent command thrashing
-        self.sheriff.set_observer (True)
+        self.sheriff.set_observer(True)
 
-        self.statusbar.push (self.statusbar.get_context_id ("main"),
-                "WARNING: multiple sheriffs detected!  Switching to observer mode");
-        gobject.timeout_add (6000,
-                lambda *s: self.statusbar.pop (self.statusbar.get_context_id ("main")))
+        self.statusbar.push(
+            self.statusbar.get_context_id("main"),
+            "WARNING: multiple sheriffs detected!  Switching to observer mode",
+        )
+        GObject.timeout_add(
+            6000, lambda *_: self.statusbar.pop(self.statusbar.get_context_id("main"))
+        )
 
     def observer_status_changed(self, is_observer):
-        glib.idle_add(self._gtk_observer_status_changed, is_observer)
+        GLib.idle_add(self._gtk_observer_status_changed, is_observer)
 
     def _gtk_observer_status_changed(self, is_observer):
         self._update_menu_item_sensitivities()
@@ -238,22 +272,22 @@ class SheriffGtk(SheriffListener):
         self.is_observer_cmi.set_active(is_observer)
 
     def script_removed(self, script_object):
-        glib.idle_add(self._gtk_on_script_removed, script_object)
+        GLib.idle_add(self._gtk_on_script_removed, script_object)
 
     def script_started(self, script_object):
-        glib.idle_add(self._gtk_on_script_started, script_object)
+        GLib.idle_add(self._gtk_on_script_started, script_object)
 
     def script_action_executing(self, script_object, action):
-        glib.idle_add(self._gtk_on_script_action_executing, script_object, action)
+        GLib.idle_add(self._gtk_on_script_action_executing, script_object, action)
 
     def script_finished(self, script_object):
-        glib.idle_add(self._gtk_on_script_finished, script_object)
+        GLib.idle_add(self._gtk_on_script_finished, script_object)
 
     def on_preferences_mi_activate(self, *args):
         sd.do_preferences_dialog(self, self.window)
 
     def on_quit_requested(self, *args):
-        gtk.main_quit()
+        Gtk.main_quit()
 
     def on_start_cmd_mi_activate(self, *args):
         self.cmds_tv._start_selected_commands()
@@ -284,9 +318,10 @@ class SheriffGtk(SheriffListener):
         if not os.path.exists(self.config_fname):
             return
         try:
-            d = pickle.load(open(self.config_fname, "r"))
-        except Exception, err:
-            print err
+            with open(self.config_fname, 'rb') as config_file:
+                d = pickle.load(config_file)
+        except Exception as err:
+            print(err)
             return
 
         self.cmds_tv.load_settings(d)
@@ -294,7 +329,7 @@ class SheriffGtk(SheriffListener):
         self.deputies_tv.load_settings(d)
 
     def save_settings(self):
-        config_dir = os.path.join(glib.get_user_config_dir(), "procman-sheriff")
+        config_dir = os.path.join(GLib.get_user_config_dir(), "procman-sheriff")
         if not os.path.exists(config_dir):
             os.makedirs(config_dir)
         self.config_fname = os.path.join(config_dir, "config")
@@ -305,9 +340,10 @@ class SheriffGtk(SheriffListener):
         self.deputies_tv.save_settings(d)
 
         try:
-            pickle.dump(d, open(self.config_fname, "w"))
-        except Exception, err:
-            print err
+            with open(self.config_fname, 'wb') as config_file:
+                pickle.dump(d, config_file)
+        except Exception as err:
+            print(err)
 
     def _do_repopulate(self):
         self.cmds_ts.repopulate()
@@ -315,14 +351,14 @@ class SheriffGtk(SheriffListener):
 
     def _schedule_cmds_update(self, *unused):
         if not self.cmds_update_scheduled:
-            gobject.timeout_add(100, self._do_repopulate)
+            GObject.timeout_add(100, self._do_repopulate)
         return True
 
     def _terminate_spawned_deputy(self):
         if self.spawned_deputy:
             try:
                 self.spawned_deputy.terminate()
-            except AttributeError: # python 2.4, 2.5 don't have Popen.terminate()
+            except AttributeError:  # python 2.4, 2.5 don't have Popen.terminate()
                 os.kill(self.spawned_deputy.pid, signal.SIGTERM)
                 self.spawned_deputy.wait()
         self.spawned_deputy = None
@@ -335,10 +371,11 @@ class SheriffGtk(SheriffListener):
         if self.spawned_deputy.returncode is None:
             return True
 
-        returncode_msgs = { \
-                0 : "Terminated",
-                1 : "OS or other networking error",
-                2 : "Conflicting deputy with same id already exists" }
+        returncode_msgs = {
+            0: "Terminated",
+            1: "OS or other networking error",
+            2: "Conflicting deputy with same id already exists",
+        }
 
         msg = returncode_msgs.get(self.spawned_deputy.returncode, "Unknown error")
 
@@ -346,49 +383,63 @@ class SheriffGtk(SheriffListener):
         self.terminate_spawned_deputy_mi.set_sensitive(False)
         self.spawned_deputy = None
 
-        dialog = gtk.MessageDialog(self.window, 0, gtk.MESSAGE_ERROR,
-                gtk.BUTTONS_OK, "Spawned deputy exited prematurely: %s" % msg)
+        dialog = Gtk.MessageDialog(
+            self.window,
+            0,
+            Gtk.MessageType.ERROR,
+            Gtk.ButtonsType.OK,
+            "Spawned deputy exited prematurely: {}".format(msg),
+        )
         dialog.run()
         dialog.destroy()
         return True
 
-    def run_script(self, menuitem, script, script_done_action = None):
+    def run_script(self, menuitem, script, script_done_action=None):
         self.script_done_action = script_done_action
         errors = self.script_manager.execute_script(script)
         if errors:
-            msgdlg = gtk.MessageDialog (self.window,
-                    gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
-                    gtk.MESSAGE_ERROR, gtk.BUTTONS_CLOSE,
-                    "Script failed to run.  Errors detected:\n" + \
-                    "\n".join(errors))
-            msgdlg.run ()
-            msgdlg.destroy ()
+            msgdlg = Gtk.MessageDialog(
+                self.window,
+                Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                Gtk.MessageType.ERROR,
+                Gtk.ButtonsType.CLOSE,
+                "Script failed to run.  Errors detected:\n" + "\n".join(errors),
+            )
+            msgdlg.run()
+            msgdlg.destroy()
 
     def _gtk_on_script_started(self, script):
         self._update_menu_item_sensitivities()
         cid = self.statusbar_context_script
         if self.statusbar_context_script_msg is not None:
             self.statusbar.pop(cid)
-            self.statusbar_context_script_msg = self.statusbar.push(cid, \
-                    "Script %s: start" % script.name)
+            self.statusbar_context_script_msg = self.statusbar.push(
+                cid, "Script {}: start".format(script.name)
+            )
 
     def _gtk_on_script_action_executing(self, script, action):
         cid = self.statusbar_context_script
         self.statusbar.pop(cid)
-        msg = "Action: %s" % str(action)
+        msg = "Action: {}".format(str(action))
         self.statusbar_context_script_msg = self.statusbar.push(cid, msg)
 
     def _gtk_on_script_finished(self, script):
         self._update_menu_item_sensitivities()
         cid = self.statusbar_context_script
         self.statusbar.pop(cid)
-        self.statusbar_context_script_msg = self.statusbar.push(cid, \
-                "Script %s: finished" % script.name)
+        self.statusbar_context_script_msg = self.statusbar.push(
+            cid, "Script {}: finished".format(script.name)
+        )
+
         def _remove_msg_func(msg_id):
-            return lambda *s: msg_id == self.statusbar_context_script_msg and self.statusbar.pop(cid)
-        gobject.timeout_add(6000, _remove_msg_func(self.statusbar_context_script_msg))
+            return (
+                lambda *_: msg_id == self.statusbar_context_script_msg
+                and self.statusbar.pop(cid)
+            )
+
+        GObject.timeout_add(6000, _remove_msg_func(self.statusbar_context_script_msg))
         if self.script_done_action == "exit":
-            gtk.main_quit()
+            Gtk.main_quit()
         elif self.script_done_action == "observe":
             self.script_done_action = None
             self.sheriff.set_observer(True)
@@ -405,7 +456,7 @@ class SheriffGtk(SheriffListener):
         if len(name_parts) == 1:
             insert_point = 0
             for i, smi in enumerate(menu.get_children()):
-                other_script = smi.get_data("sheriff-script")
+                other_script = getattr(smi, 'sheriff_script', None)
                 if other_script is script:
                     return smi
                 if other_script is None:
@@ -413,8 +464,8 @@ class SheriffGtk(SheriffListener):
                 if other_script.name < script.name:
                     insert_point += 1
             if create:
-                mi = gtk.MenuItem(partname, use_underline=False)
-                mi.set_data("sheriff-script", script)
+                mi = Gtk.MenuItem(partname, use_underline=False)
+                mi.sheriff_script = script
                 menu.insert(mi, insert_point)
                 mi.show()
                 return mi
@@ -422,22 +473,26 @@ class SheriffGtk(SheriffListener):
         else:
             insert_point = 0
             for i, smi in enumerate(menu.get_children()):
-                if not smi.get_data("sheriff-script-submenu"):
+                if not getattr(smi, 'sheriff_script_submenu', None):
                     continue
                 submenu_name = smi.get_label()
                 if submenu_name == partname:
-                    return self._get_script_menuitem(smi.get_submenu(), script, name_parts[1:], create)
+                    return self._get_script_menuitem(
+                        smi.get_submenu(), script, name_parts[1:], create
+                    )
                 elif submenu_name < partname:
                     insert_point = i
 
             if create:
-                smi = gtk.MenuItem(partname)
-                submenu = gtk.Menu()
+                smi = Gtk.MenuItem(partname)
+                submenu = Gtk.Menu()
                 smi.set_submenu(submenu)
-                smi.set_data("sheriff-script-submenu", True)
+                smi.sheriff_script_submenu = True
                 menu.insert(smi, insert_point)
                 smi.show()
-                return self._get_script_menuitem(submenu, script, name_parts[1:], create)
+                return self._get_script_menuitem(
+                    submenu, script, name_parts[1:], create
+                )
 
     def _remove_script_menuitems(self, menu, script, name_parts):
         assert name_parts
@@ -445,12 +500,12 @@ class SheriffGtk(SheriffListener):
 
         if len(name_parts) == 1:
             for smi in menu.get_children():
-                if script == smi.get_data("sheriff-script"):
+                if script == smi.sheriff_script:
                     menu.remove(smi)
                     return
         else:
             for smi in menu.get_children():
-                if not smi.get_data("sheriff-script-submenu"):
+                if not smi.sheriff_script_submenu:
                     continue
                 submenu_name = smi.get_label()
                 submenu = smi.get_submenu()
@@ -468,13 +523,23 @@ class SheriffGtk(SheriffListener):
         run_mi = self._get_script_menuitem(self.scripts_menu, script, name_parts, True)
         run_mi.connect("activate", self.run_script, script)
 
-        edit_mi = self._get_script_menuitem(self.edit_scripts_menu, script, name_parts, True)
-        edit_mi.connect("activate",
-                lambda mi: sd.do_edit_script_dialog(self.script_manager, self.window, script))
+        edit_mi = self._get_script_menuitem(
+            self.edit_scripts_menu, script, name_parts, True
+        )
+        edit_mi.connect(
+            "activate",
+            lambda mi: sd.do_edit_script_dialog(
+                self.script_manager, self.window, script
+            ),
+        )
 
-        remove_mi = self._get_script_menuitem(self.remove_scripts_menu, script, name_parts, True)
-        remove_mi.connect("activate",
-                lambda mi: self.script_manager.remove_script(mi.get_data("sheriff-script")))
+        remove_mi = self._get_script_menuitem(
+            self.remove_scripts_menu, script, name_parts, True
+        )
+        remove_mi.connect(
+            "activate",
+            lambda mi: self.script_manager.remove_script(mi.sheriff_script),
+        )
 
         self.edit_script_mi.set_sensitive(True)
         self.remove_script_mi.set_sensitive(True)
@@ -484,7 +549,11 @@ class SheriffGtk(SheriffListener):
 
     def _gtk_on_script_removed(self, script):
         name_parts = split_script_name(script.name)
-        for menu in [ self.scripts_menu, self.edit_scripts_menu, self.remove_scripts_menu ]:
+        for menu in [
+            self.scripts_menu,
+            self.edit_scripts_menu,
+            self.remove_scripts_menu,
+        ]:
             self._remove_script_menuitems(menu, script, name_parts)
 
         if not self.script_manager.get_scripts():
@@ -506,65 +575,90 @@ class SheriffGtk(SheriffListener):
         if current_cmds:
             for cmd in current_cmds:
                 self.sheriff.remove_command(cmd)
-        else:
-            self._do_load_config()
+            # the remove_command function only schedules commands to be removed, it takes a bit of time for them to
+            # actually be removed. All commands must be removed before a config can be loaded
+            while len(self.sheriff.get_all_commands()):
+                pass
+
+        self._do_load_config()
 
     # GTK signal handlers
     def on_load_cfg_mi_activate(self, *args):
         if not self.load_dlg:
-            self.load_dlg = gtk.FileChooserDialog ("Load Config", self.window,
-                    buttons = (gtk.STOCK_OPEN, gtk.RESPONSE_ACCEPT,
-                        gtk.STOCK_CANCEL, gtk.RESPONSE_REJECT))
+            self.load_dlg = Gtk.FileChooserDialog(
+                "Load Config",
+                self.window,
+                buttons=(
+                    Gtk.STOCK_OPEN,
+                    Gtk.ResponseType.ACCEPT,
+                    Gtk.STOCK_CANCEL,
+                    Gtk.ResponseType.REJECT,
+                ),
+            )
         if self.load_save_dir:
             self.load_dlg.set_current_folder(self.load_save_dir)
-        if gtk.RESPONSE_ACCEPT == self.load_dlg.run ():
-            self.config_filename = self.load_dlg.get_filename ()
+        if Gtk.ResponseType.ACCEPT == self.load_dlg.run():
+            self.config_filename = self.load_dlg.get_filename()
             self.load_save_dir = os.path.dirname(self.config_filename)
             try:
-                cfg = sheriff.load_config_file(file(self.config_filename))
+                cfg = sheriff.load_config_file(open(self.config_filename))
             except Exception:
-                msgdlg = gtk.MessageDialog (self.window,
-                        gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
-                        gtk.MESSAGE_ERROR, gtk.BUTTONS_CLOSE,
-                        traceback.format_exc ())
-                msgdlg.run ()
-                msgdlg.destroy ()
+                msgdlg = Gtk.MessageDialog(
+                    self.window,
+                    Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                    Gtk.MessageType.ERROR,
+                    Gtk.ButtonsType.CLOSE,
+                    traceback.format_exc(),
+                )
+                msgdlg.run()
+                msgdlg.destroy()
             else:
-                self.load_config (cfg)
+                self.load_config(cfg)
         self.load_dlg.hide()
         self.load_dlg.destroy()
         self.load_dlg = None
 
     def on_save_cfg_mi_activate(self, *args):
         if not self.save_dlg:
-            self.save_dlg = gtk.FileChooserDialog ("Save Config", self.window,
-                    action = gtk.FILE_CHOOSER_ACTION_SAVE,
-                    buttons = (gtk.STOCK_SAVE, gtk.RESPONSE_ACCEPT,
-                        gtk.STOCK_CANCEL, gtk.RESPONSE_REJECT))
+            self.save_dlg = Gtk.FileChooserDialog(
+                "Save Config",
+                self.window,
+                action=Gtk.FileChooserAction.SAVE,
+                buttons=(
+                    Gtk.STOCK_SAVE,
+                    Gtk.ResponseType.ACCEPT,
+                    Gtk.STOCK_CANCEL,
+                    Gtk.ResponseType.REJECT,
+                ),
+            )
         if self.load_save_dir:
             self.save_dlg.set_current_folder(self.load_save_dir)
         if self.config_filename is not None:
-            self.save_dlg.set_filename (self.config_filename)
-        if gtk.RESPONSE_ACCEPT == self.save_dlg.run ():
-            self.config_filename = self.save_dlg.get_filename ()
+            self.save_dlg.set_filename(self.config_filename)
+        if Gtk.ResponseType.ACCEPT == self.save_dlg.run():
+            self.config_filename = self.save_dlg.get_filename()
             self.load_save_dir = os.path.dirname(self.config_filename)
             cfg_node = sheriff_config.ConfigNode()
             self.sheriff.save_config(cfg_node)
             self.script_manager.save_config(cfg_node)
             try:
-                file (self.config_filename, "w").write(str(cfg_node))
-            except IOError, e:
-                msgdlg = gtk.MessageDialog (self.window,
-                        gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
-                        gtk.MESSAGE_ERROR, gtk.BUTTONS_CLOSE, str (e))
-                msgdlg.run ()
-                msgdlg.destroy ()
-        self.save_dlg.hide ()
+                open(self.config_filename, "w").write(str(cfg_node))
+            except OSError as e:
+                msgdlg = Gtk.MessageDialog(
+                    self.window,
+                    Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                    Gtk.MessageType.ERROR,
+                    Gtk.ButtonsType.CLOSE,
+                    str(e),
+                )
+                msgdlg.run()
+                msgdlg.destroy()
+        self.save_dlg.hide()
         self.save_dlg.destroy()
         self.save_dlg = None
 
     def on_is_observer_cmi_toggled(self, menu_item):
-        self.sheriff.set_observer(menu_item.get_active ())
+        self.sheriff.set_observer(menu_item.get_active())
 
     def on_spawn_deputy_mi_activate(self, *args):
         print("Spawn deputy!")
@@ -581,124 +675,119 @@ class SheriffGtk(SheriffListener):
         self.spawn_deputy_mi.set_sensitive(True)
         self.terminate_spawned_deputy_mi.set_sensitive(False)
 
-    def _update_menu_item_sensitivities (self):
+    def _update_menu_item_sensitivities(self):
         # enable/disable menu options based on sheriff state and user selection
         is_observer = self.sheriff.is_observer()
         selected_cmds = self.cmds_tv.get_selected_commands()
         script_active = self.script_manager.get_active_script() is not None
 
-        can_modify = len(selected_cmds) > 0 and \
-                not is_observer and \
-                not script_active
-        can_add_load = not is_observer and \
-                not script_active
+        can_modify = len(selected_cmds) > 0 and not is_observer and not script_active
+        can_add_load = not is_observer and not script_active
 
-#        _dbg("_update_menu_item_sensitivities (%s / %s / %s / %s / %s)" % (is_observer,
-#            can_modify, can_add_load, len(selected_cmds), script_active))
+        #        _dbg("_update_menu_item_sensitivities (%s / %s / %s / %s / %s)" % (is_observer,
+        #            can_modify, can_add_load, len(selected_cmds), script_active))
 
-        self.start_cmd_mi.set_sensitive (can_modify)
-        self.stop_cmd_mi.set_sensitive (can_modify)
-        self.restart_cmd_mi.set_sensitive (can_modify)
-        self.remove_cmd_mi.set_sensitive (can_modify)
-        self.edit_cmd_mi.set_sensitive (can_modify)
+        self.start_cmd_mi.set_sensitive(can_modify)
+        self.stop_cmd_mi.set_sensitive(can_modify)
+        self.restart_cmd_mi.set_sensitive(can_modify)
+        self.remove_cmd_mi.set_sensitive(can_modify)
+        self.edit_cmd_mi.set_sensitive(can_modify)
 
-        self.new_cmd_mi.set_sensitive (can_add_load)
-        self.load_cfg_mi.set_sensitive (can_add_load)
+        self.new_cmd_mi.set_sensitive(can_add_load)
+        self.load_cfg_mi.set_sensitive(can_add_load)
 
         # TODO script menu sensitivities
         self.abort_script_mi.set_sensitive(script_active)
 
-    def _on_cmds_selection_changed (self, selection):
-        selected_cmds = self.cmds_tv.get_selected_commands ()
-        if len (selected_cmds) == 1:
+    def _on_cmds_selection_changed(self, selection):
+        selected_cmds = self.cmds_tv.get_selected_commands()
+        if len(selected_cmds) == 1:
             self.cmd_console.show_command_buffer(list(selected_cmds)[0])
-        elif len (selected_cmds) == 0:
+        elif len(selected_cmds) == 0:
             self.cmd_console.show_sheriff_buffer()
-        self._update_menu_item_sensitivities ()
+        self._update_menu_item_sensitivities()
 
-def usage():
-    sys.stdout.write(
-"""usage: %s [options] [<procman_config_file> [<script_name>]]
-
-Process management operating console.
-
-Options:
-  -l, --lone-ranger   Automatically run a deputy within the sheriff process
-                      This deputy terminates with the sheriff, along with
-                      all the commands it hosts.
-
-  -n, --no-gui        Runs in headless mode (no GUI).
-
-  -o, --observer      Runs in observer mode on startup.  This prevents the
-                      sheriff from sending any commands, and is useful for
-                      monitoring existing procman sheriff and/or deputy
-                      instances.
-
-  --on-script-complete <exit|observe>
-                      Only valid if a script is specified.  If set to "exit",
-                      then the sheriff exits when the script is done executing.
-                      If set to "observe", then the sheriff self-demotes to
-                      observer mode.
-
-  -h, --help          Shows this help text
-
-If <procman_config_file> is specified, then the sheriff tries to load
-deputy commands from the file.
-
-If <script_name> is additionally specified, then the sheriff executes the
-named script once the config file is loaded.
-
-""" % os.path.basename(sys.argv[0]))
-    sys.exit(1)
 
 def main():
-    try:
-        opts, args = getopt.getopt( sys.argv[1:], 'hlon',
-                ['help','lone-ranger', 'on-script-complete=', 'no-gui', 'observer'] )
-    except getopt.GetoptError:
-        usage()
-        sys.exit(2)
+    parser = argparse.ArgumentParser(
+        description="Process management operating console.",
+        epilog="If procman_config_file is specified, then the sheriff tries to load "
+        "deputy commands from the file.\n\nIf script_name is additionally "
+        "specified, then the sheriff executes the named script once the config "
+        "file is loaded.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
-    spawn_deputy = False
-    use_gui = True
-    script_done_action = None
-    observer = False
+    if "-o" not in sys.argv:
+        parser.add_argument("procman_config_file", help="The configuration file to load")
 
-    for optval, argval in opts:
-        if optval in [ '-l', '--lone-ranger' ]:
-            spawn_deputy = True
-        elif optval in [ '-n', '--no-gui' ]:
-            use_gui = False
-        elif optval in [ '-o', '--observer' ]:
-            observer = True
-        elif optval in [ '--on-script-complete' ]:
-            script_done_action = argval
-            if argval not in [ "exit", "observe" ]:
-                usage()
-        elif optval in [ '-h', '--help' ]:
-            usage()
+    parser.add_argument(
+        "--script", help="A script to execute after the config file is loaded."
+    )
 
-    cfg = None
-    script_name = None
-    if len(args) > 0:
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "-l",
+        "--lone-ranger",
+        action="store_true",
+        dest="spawn_deputy",
+        help="Automatically run a deputy within the sheriff process. This deputy terminates with the "
+        "sheriff, along with all the commands it hosts.",
+    )
+    mode.add_argument(
+        "-o",
+        "--observer",
+        action="store_true",
+        help="Runs in observer mode on startup.  This "
+        "prevents the sheriff from sending any "
+        "commands, and is useful for monitoring "
+        "existing procman sheriff and/or deputy "
+        "instances.",
+    )
+
+    parser.add_argument(
+        "-n",
+        "--no-gui",
+        action="store_false",
+        dest="use_gui",
+        help="Runs in headless mode (no GUI). Requires a script.",
+    )
+
+    parser.add_argument(
+        "--on-script-complete",
+        choices=["exit", "observer"],
+        dest="script_done_action",
+        help='Only valid if a script is specified.  If set to "exit", then the sheriff exits when '
+        'the script is done executing. If set to "observe", then the sheriff self-demotes to '
+        "observer mode.",
+    )
+
+    # Parse only known args, ignore unknown_args
+    args, _ = parser.parse_known_args(sys.argv[1:])
+
+    if hasattr(args, "procman_config_file"):
         try:
-            cfg = sheriff.load_config_file(file(args[0]))
-        except Exception, xcp:
-            print "Unable to load config file."
-            print xcp
+            cfg = sheriff.load_config_file(open(args.procman_config_file))
+        except Exception as xcp:
+            print("Unable to load config file.")
+            print(xcp)
             sys.exit(1)
-    if len(args) > 1:
-        script_name = args[1]
+    else:
+        cfg = None
 
-    if observer:
+    if args.observer:
         if cfg:
-            print "Loading a config file is not allowed when starting in observer mode."
+            print(
+                "Loading a config file is not allowed when starting in observer mode, ignoring"
+            )
+            cfg = None
+        if not args.use_gui:
+            print(
+                "Refusing to start an observer without a gui -- that would be useless."
+            )
             sys.exit(1)
-        if not use_gui:
-            print "Refusing to start an observer without a gui -- that would be useless."
-            sys.exit(1)
-        if spawn_deputy:
-            print "Lone ranger mode and observer mode are mutually exclusive."
+        if args.spawn_deputy:
+            print("Lone ranger mode and observer mode are mutually exclusive.")
             sys.exit(1)
 
     lcm_obj = LCM()
@@ -708,46 +797,68 @@ def main():
         except Exception:
             traceback.print_exc()
         return True
-    gobject.io_add_watch(lcm_obj, gobject.IO_IN, handle)
-    gobject.threads_init()
+    GObject.io_add_watch(lcm_obj, GObject.IO_IN, handle)
+    GObject.threads_init()
 
-    if use_gui:
+
+    if args.use_gui:
         gui = SheriffGtk(lcm_obj)
-        if observer:
+        if args.observer:
             gui.sheriff.set_observer(True)
-        if spawn_deputy:
+        if args.spawn_deputy:
             gui.on_spawn_deputy_mi_activate()
-        if cfg is not None:
-            gui.load_config(cfg)
-            gui.load_save_dir = os.path.dirname(args[0])
+        if cfg:
+            try:
+                gui.load_config(cfg)
+            except ValueError as e:
+                print("Error while loading config: {}".format(e))
+                gui.cleanup(False)
+                sys.exit(1)
 
-        if script_name:
-            script = gui.script_manager.get_script(script_name)
+            gui.load_save_dir = os.path.dirname(args.procman_config_file)
+
+        if args.script:
+            script = gui.script_manager.get_script(args.script)
             if not script:
-                print "No such script: %s" % script_name
+                print("No such script: {}".format(args.script))
                 gui.cleanup(False)
                 sys.exit(1)
             errors = gui.script_manager.check_script_for_errors(script)
             if errors:
-                print "Unable to run script.  Errors were detected:\n\n"
-                print "\n    ".join(errors)
+                print("Unable to run script.  Errors were detected:\n\n")
+                print("\n    ".join(errors))
                 gui.cleanup(False)
                 sys.exit(1)
-            gobject.timeout_add(200, lambda *s: gui.run_script(None, script, script_done_action))
+            # Use lambda with *_ as input - we ignore all parameters to the callback
+            GObject.timeout_add(
+                200, lambda *_: gui.run_script(None, script, args.script_done_action)
+            )
 
-        signal.signal(signal.SIGINT, lambda *s: gtk.main_quit())
-        signal.signal(signal.SIGTERM, lambda *s: gtk.main_quit())
-        signal.signal(signal.SIGHUP, lambda *s: gtk.main_quit())
+        signal.signal(signal.SIGINT, lambda *_: Gtk.main_quit())
+        signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
+        signal.signal(signal.SIGHUP, lambda *_: Gtk.main_quit())
+
+        def on_delete(widget=None, *data):
+            """
+            Runs on alt-f4 or close button
+            """
+
+        gui.window.connect("destroy", Gtk.main_quit)
+        gui.window.connect("delete-event", on_delete)
+
         try:
-            gtk.main ()
+            Gtk.main()
         except KeyboardInterrupt:
             print("Exiting")
         gui.cleanup(True)
     else:
-        if not script_name:
+        if not args.script:
             print("No script specified and running in headless mode.  Exiting")
             sys.exit(1)
-        SheriffHeadless(lcm_obj, cfg, spawn_deputy, script_name, script_done_action).run()
+        SheriffHeadless(
+            lcm_obj, cfg, args.spawn_deputy, args.script, args.script_done_action
+        ).run()
+
 
 if __name__ == "__main__":
     main()
