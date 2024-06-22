@@ -159,7 +159,7 @@ class CommandNode(object):
         lines = []
         command_id = self.attributes["command_id"]
         lines.append (s + "cmd \"%s\" {" % escape_str(command_id))
-        pairs = self.attributes.items()
+        pairs = list(self.attributes.items())
         pairs.sort()
         for key, val in pairs:
             if not val:
@@ -200,11 +200,11 @@ class GroupNode(object):
         s = "    " * indent
         if self.name == "":
             assert indent == 0
-            val = "\n".join([group.to_config_string(0) for group in self.subgroups.values()])
+            val = "\n".join([group.to_config_string(0) for group in list(self.subgroups.values())])
             val = val + "\n".join([cmd.to_config_string(0) for cmd in self.commands]) + "\n"
         else:
             val = "%sgroup \"%s\" {\n" % (s, self.name)
-            val = val + "\n".join([group.to_config_string(indent+1) for group in self.subgroups.values()])
+            val = val + "\n".join([group.to_config_string(indent+1) for group in list(self.subgroups.values())])
             val = val + "\n".join([cmd.to_config_string(indent+1) for cmd in self.commands])
             val = val + "\n%s}\n" % s
         return val
@@ -318,7 +318,7 @@ class ConfigNode(object):
 
     def __str__ (self):
         val = self.root_group.to_config_string()
-        scripts = sorted(self.scripts.values(), key=lambda s: s.name.lower())
+        scripts = sorted(list(self.scripts.values()), key=lambda s: s.name.lower())
         val += "\n" + "\n".join([str(script) for script in scripts])
         return val
 
@@ -530,8 +530,8 @@ if __name__ == "__main__":
     try:
         fname = sys.argv[1]
     except IndexError:
-        print "usage: sheriff_config.py <fname>"
+        print("usage: sheriff_config.py <fname>")
         sys.exit (1)
 
     config = Parser().parse(file(fname))
-    print config
+    print(config)

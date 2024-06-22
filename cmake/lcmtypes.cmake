@@ -314,7 +314,7 @@ function(lcmtypes_build_python)
 
     # Get python version
     execute_process(COMMAND
-        ${PYTHON_EXECUTABLE} -c "import sys; sys.stdout.write(sys.version[:3])"
+        ${PYTHON_EXECUTABLE} -c "import sys; sys.stdout.write(str(sys.version_info.major) + '.' + str(sys.version_info.minor))"
         OUTPUT_VARIABLE pyversion)
 
     set(_lcmtypes_python_dir ${CMAKE_CURRENT_BINARY_DIR}/lcmtypes/python)

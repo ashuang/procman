@@ -589,7 +589,7 @@ class ScriptManager(object):
             for script in self._scripts[:]:
                 self._remove_script(script)
 
-            for script_node in config_node.scripts.values():
+            for script_node in list(config_node.scripts.values()):
                 self._add_script(SheriffScript.from_script_node(script_node))
 
     def save_config(self, config_node):

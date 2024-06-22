@@ -25,3 +25,8 @@ lcmtypes_build(INCLUDE_BUILD_PATH ${INCLUDE_OUTPUT_PATH}
 
 add_subdirectory(src)
 add_subdirectory(python)
+
+# Install the icon file
+set(ICON_SOURCE_PATH ${CMAKE_SOURCE_DIR}/doc/images/procman_icon.svg)
+set(ICON_INSTALL_PATH share/icons/hicolor/scalable/apps)
+install(FILES ${ICON_SOURCE_PATH} DESTINATION ${ICON_INSTALL_PATH})

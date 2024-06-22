@@ -1,7 +1,7 @@
 find_package(PythonInterp REQUIRED)
 
 execute_process(COMMAND
-    ${PYTHON_EXECUTABLE} -c "import sys; sys.stdout.write(sys.version[:3])"
+    ${PYTHON_EXECUTABLE} -c "import sys; sys.stdout.write(str(sys.version_info.major) + '.' + str(sys.version_info.minor))"
     OUTPUT_VARIABLE pyversion)
 
 set(py_install_dir lib/python${pyversion}/dist-packages)
@@ -22,7 +22,7 @@ install(FILES procman-sheriff.glade DESTINATION share/procman)
 # procman-sheriff executable script
 set(procman_sheriff ${CMAKE_CURRENT_BINARY_DIR}/procman-sheriff)
 file(WRITE ${procman_sheriff}
-           "#!/usr/bin/env python2\n"
+           "#!/usr/bin/env python3\n"
            "import sys\n"
            "sys.path.append('${CMAKE_INSTALL_PREFIX}/${py_install_dir}')\n"
            "import procman.sheriff_gtk.sheriff_gtk\n"

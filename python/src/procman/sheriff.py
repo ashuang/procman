@@ -8,7 +8,6 @@ import sys
 import time
 import signal
 import threading
-import thread
 
 import lcm
 from procman_lcm.cmd_t import cmd_t
@@ -293,7 +292,7 @@ class Deputy(object):
         @return a list of Command objects
         """
         with self._lock:
-            return self._commands.values()
+            return list(self._commands.values())
 
     @property
     def deputy_id(self):
@@ -362,7 +361,7 @@ class Deputy(object):
 
         updated_ids = [ cmd_msg.cmd.command_id for cmd_msg in dep_info_msg.cmds ]
 
-        can_safely_remove = [ cmd for cmd in self._commands.values() \
+        can_safely_remove = [ cmd for cmd in list(self._commands.values()) \
                 if cmd._scheduled_for_removal and \
                 cmd._command_id not in updated_ids ]
 
@@ -400,7 +399,7 @@ class Deputy(object):
             if old_status != new_status:
                 status_changes.append((cmd, old_status, new_status))
         updated_ids = set([ cmd_msg.cmd.command_id for cmd_msg in orders_msg.cmds ])
-        for cmd in self._commands.values():
+        for cmd in list(self._commands.values()):
             if cmd._command_id not in updated_ids:
                 old_status = cmd._status()
                 cmd._scheduled_for_removal = True
@@ -431,7 +430,7 @@ class Deputy(object):
         msg.deputy_id = self._deputy_id
         msg.ncmds = len(self._commands)
         msg.sheriff_id = sheriff_id
-        for cmd in self._commands.values():
+        for cmd in list(self._commands.values()):
             if cmd._scheduled_for_removal:
                 msg.ncmds -= 1
                 continue
@@ -629,7 +628,7 @@ class Sheriff(object):
 
     def _get_command_deputy(self, cmd):
         # _lock should already be acquired
-        for deputy in self._deputies.values():
+        for deputy in list(self._deputies.values()):
             if deputy._owns_command(cmd):
                 return deputy
         raise KeyError()
@@ -721,7 +720,7 @@ class Sheriff(object):
         # self._lock should already be acquired
         if self._is_observer:
             raise ValueError("Can't send orders in Observer mode")
-        for deputy in self._deputies.values():
+        for deputy in list(self._deputies.values()):
             # only send orders to a deputy if we've heard from it.
             if deputy._last_update_utime > 0:
                 msg = deputy._make_orders_message(self._id)
@@ -741,7 +740,7 @@ class Sheriff(object):
             raise ValueError("Duplicate command id %s" % command_id)
         if not deputy_id:
             raise ValueError("Invalid deputy")
-
+        print('hi2')
         dep = self._get_or_make_deputy(deputy_id)
         newcmd = Command(self._lock)
         newcmd._exec_str = exec_str
@@ -952,7 +951,7 @@ class Sheriff(object):
         @return a list of Deputy objects.
         """
         with self._lock:
-            return self._deputies.values()
+            return list(self._deputies.values())
 
     def remove_empty_deputies(self):
         """Clean up the Sheriff internal state.
@@ -962,14 +961,14 @@ class Sheriff(object):
         of deputies that don't have any commands.
         """
         with self._lock:
-            for deputy_id, deputy in self._deputies.items():
-                cmds = deputy._commands.values()
+            for deputy_id, deputy in list(self._deputies.items()):
+                cmds = list(deputy._commands.values())
                 if not deputy._commands or \
                         all([ cmd._scheduled_for_removal for cmd in cmds ]):
                     del self._deputies[deputy_id]
 
     def _get_command_deputy(self, command):
-        for deputy in self._deputies.values():
+        for deputy in list(self._deputies.values()):
             if command._command_id in deputy._commands:
                 return deputy
         raise KeyError("No such command")
@@ -987,8 +986,8 @@ class Sheriff(object):
 
     def _get_all_commands(self):
         cmds = []
-        for dep in self._deputies.values():
-            cmds.extend(dep._commands.values())
+        for dep in list(self._deputies.values()):
+            cmds.extend(list(dep._commands.values()))
         return cmds
 
     def get_all_commands(self):
@@ -1000,7 +999,7 @@ class Sheriff(object):
             return self._get_all_commands()
 
     def _get_command(self, cmd_id):
-        for deputy in self._deputies.values():
+        for deputy in list(self._deputies.values()):
             if cmd_id in deputy._commands:
                 return deputy._commands[cmd_id]
         return None
@@ -1021,8 +1020,8 @@ class Sheriff(object):
         while group_name.find("//") >= 0:
             group_name = group_name.replace("//", "/")
         group_parts = group_name.split("/")
-        for deputy in self._deputies.values():
-            for cmd in deputy._commands.values():
+        for deputy in list(self._deputies.values()):
+            for cmd in list(deputy._commands.values()):
                 cmd_group_parts = cmd._group.split("/")
                 if len(group_parts) <= len(cmd_group_parts) and \
                         all([ cgp == gp for cgp, gp in zip(group_parts,
@@ -1064,7 +1063,7 @@ class Sheriff(object):
                     stop_signal,
                     stop_time_allowed)
 
-        for subgroup in group_node.subgroups.values():
+        for subgroup in list(group_node.subgroups.values()):
             if group_node.name:
                 self._add_commands_from_config(subgroup,
                     name_prefix + group_node.name + "/")
@@ -1097,8 +1096,8 @@ class Sheriff(object):
         @param config_obj output config object, created with make_empty_config().
         """
         with self._lock:
-            for deputy in self._deputies.values():
-                for cmd in deputy._commands.values():
+            for deputy in list(self._deputies.values()):
+                for cmd in list(deputy._commands.values()):
                     cmd_node = sheriff_config.CommandNode()
                     cmd_node.attributes["exec"] = cmd._exec_str
                     cmd_node.attributes["command_id"] = cmd._command_id
