@@ -8,6 +8,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+#include <stdexcept>
 
 #ifdef __APPLE__
 #include <util.h>
@@ -95,7 +96,7 @@ void Procman::StartCommand(ProcmanCommandPtr cmd) {
   } else if (pid < 0) {
     const std::string errmsg(strerror(errno));
     close(stderr_backup);
-    // throw std::runtime_error("forkpty: " + errmsg);
+    throw std::runtime_error("forkpty: " + errmsg);
   } else {
     cmd->SetPid(pid);
     cmd->SetStdoutFd(cmd->StdinFd());
@@ -275,7 +276,7 @@ void Procman::SetCommandExecStr(ProcmanCommandPtr cmd,
 
 void Procman::CheckCommand(ProcmanCommandPtr cmd) {
   if (std::find(commands_.begin(), commands_.end(), cmd) == commands_.end()) {
-    // throw std::invalid_argument("invalid command");
+    throw std::invalid_argument("invalid command");
   }
 }
 
