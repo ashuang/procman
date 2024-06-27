@@ -740,7 +740,6 @@ class Sheriff(object):
             raise ValueError("Duplicate command id %s" % command_id)
         if not deputy_id:
             raise ValueError("Invalid deputy")
-        print('hi2')
         dep = self._get_or_make_deputy(deputy_id)
         newcmd = Command(self._lock)
         newcmd._exec_str = exec_str
